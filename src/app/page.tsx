@@ -19,15 +19,39 @@ import type {
 const STORAGE_KEY =
   "ai-router-messages";
 
+const CONVERSATION_KEY =
+  "ai-router-conversation-id";
+
 export default function Home() {
+  /*
+  |--------------------------------------------------------------------------
+  | CHAT STATE
+  |--------------------------------------------------------------------------
+  */
+
   const [messages, setMessages] =
     useState<ChatMessage[]>([]);
+
+  const [conversationId, setConversationId] =
+    useState<string>("");
+
+  /*
+  |--------------------------------------------------------------------------
+  | MODEL STATE
+  |--------------------------------------------------------------------------
+  */
 
   const [models, setModels] =
     useState<ModelInfo[]>([]);
 
   const [selectedModel, setSelectedModel] =
-    useState("auto");
+    useState("openrouter/free");
+
+  /*
+  |--------------------------------------------------------------------------
+  | UI STATE
+  |--------------------------------------------------------------------------
+  */
 
   const [message, setMessage] =
     useState("");
@@ -43,7 +67,57 @@ export default function Home() {
 
   /*
   |--------------------------------------------------------------------------
-  | LOAD CHAT HISTORY
+  | INITIALIZE CONVERSATION
+  |--------------------------------------------------------------------------
+  */
+
+  useEffect(() => {
+    try {
+      let savedConversationId =
+        localStorage.getItem(
+          CONVERSATION_KEY
+        );
+
+      /*
+      |--------------------------------------------------------------
+      | Create conversation ID if none exists
+      |--------------------------------------------------------------
+      */
+
+      if (!savedConversationId) {
+        savedConversationId =
+          crypto.randomUUID();
+
+        localStorage.setItem(
+          CONVERSATION_KEY,
+          savedConversationId
+        );
+      }
+
+      setConversationId(
+        savedConversationId
+      );
+    } catch (error) {
+      console.error(
+        "Failed to initialize conversation:",
+        error
+      );
+
+      /*
+      |--------------------------------------------------------------
+      | Fallback
+      |--------------------------------------------------------------
+      */
+
+      setConversationId(
+        crypto.randomUUID()
+      );
+    }
+  }, []);
+
+  /*
+  |--------------------------------------------------------------------------
+  | LOAD LOCAL CHAT HISTORY
   |--------------------------------------------------------------------------
   */
 
@@ -54,25 +128,27 @@ export default function Home() {
           STORAGE_KEY
         );
 
-      if (saved) {
-        const parsed = JSON.parse(
-          saved
-        );
-
-        if (Array.isArray(parsed)) {
-          setMessages(parsed);
-        }
+      if (!saved) {
+        return;
       }
-    } catch {
+
+      const parsed =
+        JSON.parse(saved);
+
+      if (Array.isArray(parsed)) {
+        setMessages(parsed);
+      }
+    } catch (error) {
       console.error(
-        "Failed to load history"
+        "Failed to load history:",
+        error
       );
     }
   }, []);
 
   /*
   |--------------------------------------------------------------------------
-  | SAVE CHAT HISTORY
+  | SAVE LOCAL CHAT HISTORY
   |--------------------------------------------------------------------------
   */
 
@@ -82,9 +158,10 @@ export default function Home() {
         STORAGE_KEY,
         JSON.stringify(messages)
       );
-    } catch {
+    } catch (error) {
       console.error(
-        "Failed to save history"
+        "Failed to save history:",
+        error
       );
     }
   }, [messages]);
@@ -115,7 +192,9 @@ export default function Home() {
             ? data
             : data.models ?? [];
 
-        setModels(loadedModels);
+        setModels(
+          loadedModels
+        );
       } catch (error) {
         console.error(
           "Model loading error:",
@@ -134,91 +213,282 @@ export default function Home() {
   */
 
   async function sendMessage() {
-    const text = message.trim();
+    const text =
+      message.trim();
 
-    if (!text || loading) {
+    if (
+      !text ||
+      loading ||
+      !conversationId
+    ) {
       return;
     }
 
-    const userMessage: ChatMessage = {
+    /*
+    |--------------------------------------------------------------
+    | User message
+    |--------------------------------------------------------------
+    */
+
+    const userMessage:
+      ChatMessage = {
       id: crypto.randomUUID(),
+
       role: "user",
+
       content: text,
+
       createdAt: Date.now(),
     };
 
     /*
-     * Bu adalah history yang akan dikirim
-     * ke AI, termasuk pesan user terbaru.
-     */
+    |--------------------------------------------------------------
+    | Conversation sent to API
+    |--------------------------------------------------------------
+    */
+
     const conversation = [
       ...messages,
       userMessage,
     ];
 
-    setMessages(conversation);
+    /*
+    |--------------------------------------------------------------
+    | Update UI immediately
+    |--------------------------------------------------------------
+    */
+
+    setMessages(
+      conversation
+    );
+
     setMessage("");
+
     setLoading(true);
-    setUsage((value) => value + 1);
+
+    setUsage(
+      (value) => value + 1
+    );
+
+    /*
+    |--------------------------------------------------------------
+    | Create empty assistant message
+    |--------------------------------------------------------------
+    */
+
+    const assistantId =
+      crypto.randomUUID();
+
+    const initialAssistantMessage:
+      ChatMessage = {
+      id: assistantId,
+
+      role: "assistant",
+
+      content: "",
+
+      model:
+        selectedModel,
+
+      createdAt: Date.now(),
+    };
+
+    setMessages(
+      (previous) => [
+        ...previous,
+        initialAssistantMessage,
+      ]
+    );
 
     try {
+      /*
+      |--------------------------------------------------------------
+      | Send request
+      |--------------------------------------------------------------
+      */
+
       const response =
-        await fetch("/api/chat", {
-          method: "POST",
+        await fetch(
+          "/api/chat",
+          {
+            method: "POST",
 
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
 
-          body: JSON.stringify({
-            messages: conversation,
-            model: selectedModel,
-          }),
-        });
+            body:
+              JSON.stringify({
+                conversationId,
 
-      const data =
-        await response.json();
+                messages:
+                  conversation,
+
+                model:
+                  selectedModel,
+              }),
+          }
+        );
+
+      /*
+      |--------------------------------------------------------------
+      | Error handling
+      |--------------------------------------------------------------
+      */
 
       if (!response.ok) {
+        const data =
+          await response
+            .json()
+            .catch(
+              () => null
+            );
+
         throw new Error(
-          data.error ??
+          data?.error ??
             "AI request failed"
         );
       }
 
-      const assistantMessage: ChatMessage =
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content:
-            data.response ??
-            "AI tidak memberikan response.",
-          model:
-            data.model ??
-            selectedModel,
-          createdAt: Date.now(),
-        };
+      /*
+      |--------------------------------------------------------------
+      | Check stream
+      |--------------------------------------------------------------
+      */
 
-      setMessages((previous) => [
-        ...previous,
-        assistantMessage,
-      ]);
+      if (!response.body) {
+        throw new Error(
+          "AI tidak mengembalikan stream."
+        );
+      }
+
+      /*
+      |--------------------------------------------------------------
+      | Read stream
+      |--------------------------------------------------------------
+      */
+
+      const reader =
+        response.body.getReader();
+
+      const decoder =
+        new TextDecoder();
+
+      let accumulated =
+        "";
+
+      while (true) {
+        const {
+          done,
+          value,
+        } =
+          await reader.read();
+
+        if (done) {
+          break;
+        }
+
+        const chunk =
+          decoder.decode(
+            value,
+            {
+              stream: true,
+            }
+          );
+
+        accumulated +=
+          chunk;
+
+        /*
+        |----------------------------------------------------------
+        | Update assistant message
+        |----------------------------------------------------------
+        */
+
+        setMessages(
+          (previous) =>
+            previous.map(
+              (msg) =>
+                msg.id ===
+                assistantId
+                  ? {
+                      ...msg,
+
+                      content:
+                        accumulated,
+                    }
+                  : msg
+            )
+        );
+      }
+
+      /*
+      |--------------------------------------------------------------
+      | Final response
+      |--------------------------------------------------------------
+      */
+
+      const finalContent =
+        accumulated.trim();
+
+      if (!finalContent) {
+        throw new Error(
+          "AI tidak memberikan response."
+        );
+      }
+
+      /*
+      |--------------------------------------------------------------
+      | Finalize assistant message
+      |--------------------------------------------------------------
+      */
+
+      setMessages(
+        (previous) =>
+          previous.map(
+            (msg) =>
+              msg.id ===
+              assistantId
+                ? {
+                    ...msg,
+
+                    content:
+                      finalContent,
+                  }
+                : msg
+          )
+      );
     } catch (error) {
-      console.error(error);
+      console.error(
+        "Chat error:",
+        error
+      );
 
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content:
-            error instanceof Error
-              ? `Error: ${error.message}`
-              : "Terjadi kesalahan.",
-          createdAt: Date.now(),
-        },
-      ]);
+      /*
+      |--------------------------------------------------------------
+      | Show error inside assistant message
+      |--------------------------------------------------------------
+      */
+
+      setMessages(
+        (previous) =>
+          previous.map(
+            (msg) =>
+              msg.id ===
+              assistantId
+                ? {
+                    ...msg,
+
+                    content:
+                      error instanceof
+                      Error
+                        ? `Error: ${error.message}`
+                        : "Terjadi kesalahan.",
+                  }
+                : msg
+          )
+      );
     } finally {
       setLoading(false);
     }
@@ -231,78 +501,180 @@ export default function Home() {
   */
 
   function newChat() {
-    if (loading) return;
+    if (loading) {
+      return;
+    }
+
+    /*
+    |--------------------------------------------------------------
+    | Generate new conversation ID
+    |--------------------------------------------------------------
+    */
+
+    const newConversationId =
+      crypto.randomUUID();
+
+    /*
+    |--------------------------------------------------------------
+    | Reset UI
+    |--------------------------------------------------------------
+    */
 
     setMessages([]);
+
     setMessage("");
 
-    localStorage.removeItem(
-      STORAGE_KEY
+    setConversationId(
+      newConversationId
     );
+
+    /*
+    |--------------------------------------------------------------
+    | Save new conversation ID
+    |--------------------------------------------------------------
+    */
+
+    try {
+      localStorage.setItem(
+        CONVERSATION_KEY,
+        newConversationId
+      );
+
+      localStorage.removeItem(
+        STORAGE_KEY
+      );
+    } catch (error) {
+      console.error(
+        "Failed to reset conversation:",
+        error
+      );
+    }
   }
 
   /*
   |--------------------------------------------------------------------------
-  | UI
+  | RENDER
   |--------------------------------------------------------------------------
   */
 
   return (
     <div className="app-shell">
+      {/* =========================================================
+          DESKTOP SIDEBAR
+          ========================================================= */}
+
       <Sidebar
         models={models}
-        selectedModel={selectedModel}
+
+        selectedModel={
+          selectedModel
+        }
+
         onModelChange={
           setSelectedModel
         }
+
         messages={messages}
-        onNewChat={newChat}
+
+        onNewChat={
+          newChat
+        }
+
         usage={usage}
+
         maxUsage={10}
       />
 
+      {/* =========================================================
+          MOBILE SIDEBAR
+          ========================================================= */}
+
       <MobileSidebar
-        open={mobileSidebar}
-        onClose={() =>
-          setMobileSidebar(false)
+        open={
+          mobileSidebar
         }
+
+        onClose={() =>
+          setMobileSidebar(
+            false
+          )
+        }
+
         models={models}
-        selectedModel={selectedModel}
+
+        selectedModel={
+          selectedModel
+        }
+
         onModelChange={
           setSelectedModel
         }
+
         messages={messages}
-        onNewChat={newChat}
+
+        onNewChat={
+          newChat
+        }
+
         usage={usage}
+
         maxUsage={10}
       />
+
+      {/* =========================================================
+          MAIN CONTENT
+          ========================================================= */}
 
       <main className="main-content">
         <ChatHeader
           models={models}
-          selectedModel={selectedModel}
+
+          selectedModel={
+            selectedModel
+          }
+
           onModelChange={
             setSelectedModel
           }
+
           onOpenSidebar={() =>
-            setMobileSidebar(true)
+            setMobileSidebar(
+              true
+            )
           }
         />
 
         <div className="chat-layout">
           <ChatArea
-            messages={messages}
-            loading={loading}
+            messages={
+              messages
+            }
+
+            loading={
+              loading
+            }
+
             selectedModel={
               selectedModel
             }
           />
 
           <Composer
-            value={message}
-            onChange={setMessage}
-            onSend={sendMessage}
-            loading={loading}
+            value={
+              message
+            }
+
+            onChange={
+              setMessage
+            }
+
+            onSend={
+              sendMessage
+            }
+
+            loading={
+              loading
+            }
           />
         </div>
       </main>

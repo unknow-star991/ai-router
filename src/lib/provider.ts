@@ -493,3 +493,84 @@ export async function runOpenRouter(
 
   return content;
 }
+
+
+// stream response from openrouter
+
+export async function streamOpenRouter(
+  messages: ChatMessage[],
+  model: string
+): Promise<Response> {
+  if (!apiKey) {
+    throw new Error(
+      "OPENROUTER_API_KEY belum ditemukan."
+    );
+  }
+
+  const conversation = messages.map(
+    (message) => ({
+      role: message.role,
+      content: message.content,
+    })
+  );
+
+  const response = await fetch(
+    OPENROUTER_API_URL,
+    {
+      method: "POST",
+
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+
+        "Content-Type":
+          "application/json",
+
+        "HTTP-Referer":
+          "http://localhost:3000",
+
+        "X-Title":
+          "AI Router",
+      },
+
+      body: JSON.stringify({
+        model,
+
+        stream: true,
+
+        messages: [
+          {
+            role: "system",
+            content: SYSTEM_PROMPT,
+          },
+
+          ...conversation,
+        ],
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const data =
+      await response.json().catch(
+        () => null
+      );
+
+    console.error(
+      "OpenRouter Streaming Error:",
+      data
+    );
+
+    throw new Error(
+      data?.error?.message ||
+        `OpenRouter error: ${response.status}`
+    );
+  }
+
+  if (!response.body) {
+    throw new Error(
+      "OpenRouter tidak mengembalikan stream."
+    );
+  }
+
+  return response;
+}

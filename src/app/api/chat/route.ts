@@ -5,10 +5,17 @@ import {
 
 import {
   models,
-  runOpenRouter,
+  streamOpenRouter,
 } from "@/lib/provider";
 
 import { routeAI } from "@/lib/router";
+
+import {
+  ensureConversation,
+  saveMessage,
+  getConversationMessages,
+  updateConversationTimestamp,
+} from "@/lib/chat-db";
 
 export async function POST(
   request: NextRequest
@@ -17,7 +24,10 @@ export async function POST(
     const body =
       await request.json();
 
-    const messages =
+    const conversationId =
+      body.conversationId;
+
+    const incomingMessages =
       body.messages;
 
     const requestedModel =
@@ -25,18 +35,19 @@ export async function POST(
 
     /*
     |--------------------------------------------------------------------------
-    | VALIDATE MESSAGES
+    | VALIDATION
     |--------------------------------------------------------------------------
     */
 
     if (
-      !Array.isArray(messages) ||
-      messages.length === 0
+      !conversationId ||
+      typeof conversationId !==
+        "string"
     ) {
       return NextResponse.json(
         {
           error:
-            "Messages are required",
+            "conversationId is required.",
         },
         {
           status: 400,
@@ -44,28 +55,16 @@ export async function POST(
       );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | VALIDATE MESSAGE CONTENT
-    |--------------------------------------------------------------------------
-    */
-
-    const validMessages =
-      messages.every(
-        (item) =>
-          item &&
-          typeof item === "object" &&
-          (item.role === "user" ||
-            item.role === "assistant") &&
-          typeof item.content ===
-            "string"
-      );
-
-    if (!validMessages) {
+    if (
+      !Array.isArray(
+        incomingMessages
+      ) ||
+      incomingMessages.length === 0
+    ) {
       return NextResponse.json(
         {
           error:
-            "Invalid message format.",
+            "Messages are required.",
         },
         {
           status: 400,
@@ -75,19 +74,34 @@ export async function POST(
 
     /*
     |--------------------------------------------------------------------------
-    | GET LATEST USER MESSAGE
+    | ENSURE CONVERSATION
+    |--------------------------------------------------------------------------
+    */
+
+    await ensureConversation(
+      conversationId
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | FIND LATEST USER MESSAGE
     |--------------------------------------------------------------------------
     */
 
     const latestUserMessage =
-      [...messages]
+      [...incomingMessages]
         .reverse()
         .find(
-          (item) =>
-            item.role === "user"
+          (message) =>
+            message?.role ===
+            "user"
         );
 
-    if (!latestUserMessage) {
+    if (
+      !latestUserMessage ||
+      typeof latestUserMessage.content !==
+        "string"
+    ) {
       return NextResponse.json(
         {
           error:
@@ -99,12 +113,60 @@ export async function POST(
       );
     }
 
-    const message =
-      latestUserMessage.content;
+    /*
+    |--------------------------------------------------------------------------
+    | SAVE USER MESSAGE
+    |--------------------------------------------------------------------------
+    */
+
+    const userMessageId =
+      latestUserMessage.id ||
+      crypto.randomUUID();
+
+    await saveMessage({
+      id: userMessageId,
+
+      conversationId,
+
+      role: "user",
+
+      content:
+        latestUserMessage.content,
+    });
 
     /*
     |--------------------------------------------------------------------------
-    | SELECT MODEL
+    | LOAD DATABASE HISTORY
+    |--------------------------------------------------------------------------
+    */
+
+    const databaseMessages =
+      await getConversationMessages(
+        conversationId
+      );
+
+    /*
+    |--------------------------------------------------------------------------
+    | CONVERT DATABASE MESSAGES
+    |--------------------------------------------------------------------------
+    */
+
+    const conversation =
+      databaseMessages.map(
+        (message) => ({
+          role:
+            message.role as
+              | "user"
+              | "assistant",
+
+          content:
+            message.content,
+        })
+      );
+
+    /*
+    |--------------------------------------------------------------------------
+    | MODEL SELECTION
     |--------------------------------------------------------------------------
     */
 
@@ -134,7 +196,9 @@ export async function POST(
       }
     } else {
       const routing =
-        routeAI(message);
+        routeAI(
+          latestUserMessage.content
+        );
 
       selectedModel =
         routing.model;
@@ -150,22 +214,199 @@ export async function POST(
       selectedModel.provider !==
       "openrouter"
     ) {
-      throw new Error(
-        "Provider belum didukung."
+      return NextResponse.json(
+        {
+          error:
+            "Provider belum didukung.",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
     /*
     |--------------------------------------------------------------------------
-    | RUN AI
+    | OPENROUTER STREAM
     |--------------------------------------------------------------------------
     */
 
-    const response =
-      await runOpenRouter(
-        messages,
+    const upstream =
+      await streamOpenRouter(
+        conversation,
         selectedModel.id
       );
+
+    if (!upstream.body) {
+      throw new Error(
+        "Stream tidak tersedia."
+      );
+    }
+
+    const reader =
+      upstream.body.getReader();
+
+    const decoder =
+      new TextDecoder();
+
+    const encoder =
+      new TextEncoder();
+
+    let fullResponse = "";
+
+    /*
+    |--------------------------------------------------------------------------
+    | STREAM TO CLIENT
+    |--------------------------------------------------------------------------
+    */
+
+    const stream =
+      new ReadableStream({
+        async start(controller) {
+          try {
+            let buffer = "";
+
+            while (true) {
+              const {
+                done,
+                value,
+              } =
+                await reader.read();
+
+              if (done) {
+                break;
+              }
+
+              buffer +=
+                decoder.decode(
+                  value,
+                  {
+                    stream: true,
+                  }
+                );
+
+              const lines =
+                buffer.split(
+                  "\n"
+                );
+
+              /*
+              |----------------------------------------------------
+              | Keep last incomplete line
+              |----------------------------------------------------
+              */
+
+              buffer =
+                lines.pop() ?? "";
+
+              for (
+                const line of lines
+              ) {
+                const trimmed =
+                  line.trim();
+
+                if (
+                  !trimmed ||
+                  !trimmed.startsWith(
+                    "data:"
+                  )
+                ) {
+                  continue;
+                }
+
+                const data =
+                  trimmed
+                    .slice(5)
+                    .trim();
+
+                if (
+                  data ===
+                  "[DONE]"
+                ) {
+                  continue;
+                }
+
+                try {
+                  const parsed =
+                    JSON.parse(
+                      data
+                    );
+
+                  const content =
+                    parsed
+                      ?.choices?.[0]
+                      ?.delta
+                      ?.content;
+
+                  if (
+                    typeof content ===
+                    "string" &&
+                    content.length > 0
+                  ) {
+                    fullResponse +=
+                      content;
+
+                    controller.enqueue(
+                      encoder.encode(
+                        content
+                      )
+                    );
+                  }
+                } catch {
+                  /*
+                  |----------------------------------------------
+                  | Ignore malformed SSE chunks
+                  |----------------------------------------------
+                  */
+                }
+              }
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | SAVE ASSISTANT RESPONSE
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+              fullResponse.trim()
+            ) {
+              await saveMessage({
+                id:
+                  crypto.randomUUID(),
+
+                conversationId,
+
+                role:
+                  "assistant",
+
+                content:
+                  fullResponse,
+
+                model:
+                  selectedModel.id,
+              });
+
+              await updateConversationTimestamp(
+                conversationId
+              );
+            }
+
+            controller.close();
+          } catch (error) {
+            console.error(
+              "STREAM ERROR:",
+              error
+            );
+
+            controller.error(
+              error
+            );
+          } finally {
+            reader.releaseLock();
+          }
+        },
+      });
 
     /*
     |--------------------------------------------------------------------------
@@ -173,20 +414,27 @@ export async function POST(
     |--------------------------------------------------------------------------
     */
 
-    return NextResponse.json({
-      success: true,
+    return new Response(
+      stream,
+      {
+        headers: {
+          "Content-Type":
+            "text/plain; charset=utf-8",
 
-      response,
+          "Cache-Control":
+            "no-cache, no-transform",
 
-      model:
-        selectedModel.name,
+          "X-AI-Model":
+            selectedModel.name,
 
-      modelId:
-        selectedModel.id,
+          "X-AI-Model-ID":
+            selectedModel.id,
 
-      provider:
-        selectedModel.provider,
-    });
+          "X-Conversation-ID":
+            conversationId,
+        },
+      }
+    );
   } catch (error) {
     console.error(
       "CHAT API ERROR:",
