@@ -1,9 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useState,
-} from "react";
+import { useEffect, useState } from "react";
 
 import Sidebar from "@/components/Sidebar";
 import MobileSidebar from "@/components/MobileSidebar";
@@ -16,13 +13,14 @@ import type {
   ModelInfo,
 } from "@/components/types";
 
-import type { AISettings } from "@/lib/ai-settings-types";
+import type {
+  AISettings,
+} from "@/lib/ai-settings-types";
 
-const STORAGE_KEY =
-  "ai-router-messages";
+const STORAGE_KEY = "ai-router-messages";
+const CONVERSATION_KEY = "ai-router-conversation-id";
 
-const CONVERSATION_KEY =
-  "ai-router-conversation-id";
+const MAX_FREE_USAGE = 10;
 
 export default function Home() {
   /*
@@ -71,6 +69,13 @@ export default function Home() {
   |--------------------------------------------------------------------------
   | AI SETTINGS
   |--------------------------------------------------------------------------
+  |
+  | Tetap dipertahankan karena sistem AI bisa mengubah
+  | konfigurasi seperti nama AI melalui /api/ai-settings.
+  |
+  | Data ini tidak dikirim ke komponen UI karena komponen
+  | tersebut belum membutuhkan prop aiSettings.
+  |
   */
 
   const [aiSettings, setAISettings] =
@@ -85,15 +90,10 @@ export default function Home() {
   useEffect(() => {
     try {
       const savedMessages =
-        localStorage.getItem(
-          STORAGE_KEY
-        );
+        localStorage.getItem(STORAGE_KEY);
 
       if (savedMessages) {
-        const parsed =
-          JSON.parse(
-            savedMessages
-          );
+        const parsed = JSON.parse(savedMessages);
 
         if (Array.isArray(parsed)) {
           setMessages(parsed);
@@ -101,14 +101,10 @@ export default function Home() {
       }
 
       const savedConversationId =
-        localStorage.getItem(
-          CONVERSATION_KEY
-        );
+        localStorage.getItem(CONVERSATION_KEY);
 
       if (savedConversationId) {
-        setConversationId(
-          savedConversationId
-        );
+        setConversationId(savedConversationId);
       }
     } catch (error) {
       console.error(
@@ -171,14 +167,21 @@ export default function Home() {
   */
 
   useEffect(() => {
+    let mounted = true;
+
     async function loadModels() {
       try {
-        const response =
-          await fetch("/api/models");
+        const response = await fetch(
+          "/api/models",
+          {
+            method: "GET",
+            cache: "no-store",
+          }
+        );
 
         if (!response.ok) {
           throw new Error(
-            "Failed to load models"
+            `Failed to load models: ${response.status}`
           );
         }
 
@@ -188,11 +191,13 @@ export default function Home() {
         const loadedModels =
           Array.isArray(data)
             ? data
-            : data.models ?? [];
+            : Array.isArray(data.models)
+              ? data.models
+              : [];
 
-        setModels(
-          loadedModels
-        );
+        if (mounted) {
+          setModels(loadedModels);
+        }
       } catch (error) {
         console.error(
           "Model loading error:",
@@ -202,6 +207,10 @@ export default function Home() {
     }
 
     loadModels();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   /*
@@ -211,16 +220,21 @@ export default function Home() {
   */
 
   useEffect(() => {
+    let mounted = true;
+
     async function loadAISettings() {
       try {
-        const response =
-          await fetch(
-            "/api/ai-settings"
-          );
+        const response = await fetch(
+          "/api/ai-settings",
+          {
+            method: "GET",
+            cache: "no-store",
+          }
+        );
 
         if (!response.ok) {
           throw new Error(
-            "Failed to load AI settings"
+            `Failed to load AI settings: ${response.status}`
           );
         }
 
@@ -228,8 +242,9 @@ export default function Home() {
           await response.json();
 
         if (
-          data.success &&
-          data.settings
+          mounted &&
+          data?.success &&
+          data?.settings
         ) {
           setAISettings(
             data.settings
@@ -244,7 +259,50 @@ export default function Home() {
     }
 
     loadAISettings();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
+
+  /*
+  |--------------------------------------------------------------------------
+  | REFRESH AI SETTINGS
+  |--------------------------------------------------------------------------
+  */
+
+  async function refreshAISettings() {
+    try {
+      const response = await fetch(
+        "/api/ai-settings",
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
+
+      if (!response.ok) {
+        return;
+      }
+
+      const data =
+        await response.json();
+
+      if (
+        data?.success &&
+        data?.settings
+      ) {
+        setAISettings(
+          data.settings
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Failed to refresh AI settings:",
+        error
+      );
+    }
+  }
 
   /*
   |--------------------------------------------------------------------------
@@ -253,13 +311,9 @@ export default function Home() {
   */
 
   async function sendMessage() {
-    const text =
-      message.trim();
+    const text = message.trim();
 
-    if (
-      !text ||
-      loading
-    ) {
+    if (!text || loading) {
       return;
     }
 
@@ -285,177 +339,82 @@ export default function Home() {
     |--------------------------------------------------------------------------
     */
 
-    const userMessage:
-      ChatMessage = {
-        id:
-          crypto.randomUUID(),
-
-        role:
-          "user",
-
-        content:
-          text,
-
-        createdAt:
-          Date.now(),
-      };
+    const userMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: text,
+      createdAt: Date.now(),
+    };
 
     /*
     |--------------------------------------------------------------------------
-    | ADD USER MESSAGE
+    | UPDATE UI
     |--------------------------------------------------------------------------
     */
 
-    setMessages(
-      (previous) => [
-        ...previous,
-        userMessage,
-      ]
-    );
+    setMessages((previous) => [
+      ...previous,
+      userMessage,
+    ]);
 
     setMessage("");
-
     setLoading(true);
 
-    setUsage(
-      (value) =>
+    setUsage((value) =>
+      Math.min(
+        MAX_FREE_USAGE,
         value + 1
+      )
     );
 
     try {
       /*
       |--------------------------------------------------------------------------
-      | API REQUEST
+      | REQUEST API
       |--------------------------------------------------------------------------
       */
 
-      const response =
-        await fetch(
-          "/api/chat",
-          {
-            method: "POST",
+      const response = await fetch(
+        "/api/chat",
+        {
+          method: "POST",
 
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
 
-            body: JSON.stringify({
-              conversationId:
-                activeConversationId,
+          body: JSON.stringify({
+            conversationId:
+              activeConversationId,
 
-              message:
-                text,
+            message: text,
 
-              model:
-                selectedModel,
+            model: selectedModel,
 
-              messages: [
-                ...messages,
-                userMessage,
-              ],
-            }),
-          }
-        );
+            messages: [
+              ...messages,
+              userMessage,
+            ],
+          }),
+        }
+      );
 
       /*
       |--------------------------------------------------------------------------
-      | RESPONSE TYPE
+      | READ RESPONSE
       |--------------------------------------------------------------------------
-      */
-
-      const contentType =
-        response.headers.get(
-          "content-type"
-        ) ?? "";
-
-      /*
-      |--------------------------------------------------------------------------
-      | JSON RESPONSE
       |
-      | Digunakan untuk AI ACTION
-      |--------------------------------------------------------------------------
+      | API saat ini mengembalikan plain text.
+      |
       */
 
-      if (
-        contentType.includes(
-          "application/json"
-        )
-      ) {
-        const data =
-          await response.json();
-
-        if (!response.ok) {
-          throw new Error(
-            data.error ??
-              data.message ??
-              "AI request failed."
-          );
-        }
-
-        /*
-        | Update conversation ID
-        */
-
-        if (
-          data.conversationId
-        ) {
-          setConversationId(
-            data.conversationId
-          );
-        }
-
-        /*
-        | Update AI settings
-        */
-
-        if (
-          data.settings
-        ) {
-          setAISettings(
-            data.settings
-          );
-        }
-
-        /*
-        | Create assistant response
-        */
-
-        const assistantMessage:
-          ChatMessage = {
-            id:
-              crypto.randomUUID(),
-
-            role:
-              "assistant",
-
-            content:
-              data.response ??
-              "Aksi berhasil dijalankan.",
-
-            model:
-              data.model ??
-              selectedModel,
-
-            createdAt:
-              Date.now(),
-          };
-
-        setMessages(
-          (previous) => [
-            ...previous,
-            assistantMessage,
-          ]
-        );
-
-        return;
-      }
+      const responseText =
+        await response.text();
 
       /*
       |--------------------------------------------------------------------------
-      | NORMAL STREAMING RESPONSE
-      |
-      | Digunakan untuk chat biasa
+      | HANDLE API ERROR
       |--------------------------------------------------------------------------
       */
 
@@ -464,17 +423,22 @@ export default function Home() {
           "AI request failed.";
 
         try {
-          const errorText =
-            await response.text();
+          const errorData =
+            JSON.parse(
+              responseText
+            );
 
+          errorMessage =
+            errorData?.error ??
+            errorData?.message ??
+            errorMessage;
+        } catch {
           if (
-            errorText.trim()
+            responseText.trim()
           ) {
             errorMessage =
-              errorText;
+              responseText;
           }
-        } catch {
-          // Ignore response parsing error
         }
 
         throw new Error(
@@ -484,199 +448,48 @@ export default function Home() {
 
       /*
       |--------------------------------------------------------------------------
-      | CONVERSATION ID FROM HEADER
-      |--------------------------------------------------------------------------
-      */
-
-      const returnedConversationId =
-        response.headers.get(
-          "X-Conversation-Id"
-        );
-
-      if (
-        returnedConversationId
-      ) {
-        setConversationId(
-          returnedConversationId
-        );
-      }
-
-      /*
-      |--------------------------------------------------------------------------
-      | MODEL FROM HEADER
-      |--------------------------------------------------------------------------
-      */
-
-      const returnedModel =
-        response.headers.get(
-          "X-Model"
-        );
-
-      /*
-      |--------------------------------------------------------------------------
-      | STREAM READER
-      |--------------------------------------------------------------------------
-      */
-
-      const reader =
-        response.body?.getReader();
-
-      if (!reader) {
-        throw new Error(
-          "Response stream tidak tersedia."
-        );
-      }
-
-      const decoder =
-        new TextDecoder();
-
-      let assistantContent =
-        "";
-
-      const assistantMessageId =
-        crypto.randomUUID();
-
-      /*
-      |--------------------------------------------------------------------------
-      | CREATE EMPTY ASSISTANT MESSAGE
+      | CREATE ASSISTANT MESSAGE
       |--------------------------------------------------------------------------
       */
 
       const assistantMessage:
         ChatMessage = {
-          id:
-            assistantMessageId,
+          id: crypto.randomUUID(),
 
-          role:
-            "assistant",
+          role: "assistant",
 
           content:
-            "",
+            responseText ||
+            "AI tidak memberikan response.",
 
           model:
-            returnedModel ??
             selectedModel,
 
-          createdAt:
-            Date.now(),
+          createdAt: Date.now(),
         };
 
-      setMessages(
-        (previous) => [
-          ...previous,
-          assistantMessage,
-        ]
-      );
-
       /*
       |--------------------------------------------------------------------------
-      | READ STREAM
+      | UPDATE MESSAGE LIST
       |--------------------------------------------------------------------------
       */
 
-      while (true) {
-        const {
-          done,
-          value,
-        } =
-          await reader.read();
-
-        if (done) {
-          break;
-        }
-
-        const chunk =
-          decoder.decode(
-            value,
-            {
-              stream: true,
-            }
-          );
-
-        if (!chunk) {
-          continue;
-        }
-
-        assistantContent +=
-          chunk;
-
-        /*
-        | Update assistant
-        | message realtime
-        */
-
-        setMessages(
-          (previous) =>
-            previous.map(
-              (currentMessage) =>
-                currentMessage.id ===
-                assistantMessageId
-                  ? {
-                      ...currentMessage,
-
-                      content:
-                        assistantContent,
-                    }
-                  : currentMessage
-            )
-        );
-      }
+      setMessages((previous) => [
+        ...previous,
+        assistantMessage,
+      ]);
 
       /*
       |--------------------------------------------------------------------------
-      | FLUSH DECODER
+      | REFRESH AI SETTINGS
       |--------------------------------------------------------------------------
+      |
+      | Jika AI mengubah nama/configuration melalui
+      | tool atau backend, UI mengambil data terbaru.
+      |
       */
 
-      const finalChunk =
-        decoder.decode();
-
-      if (finalChunk) {
-        assistantContent +=
-          finalChunk;
-
-        setMessages(
-          (previous) =>
-            previous.map(
-              (currentMessage) =>
-                currentMessage.id ===
-                assistantMessageId
-                  ? {
-                      ...currentMessage,
-
-                      content:
-                        assistantContent,
-                    }
-                  : currentMessage
-            )
-        );
-      }
-
-      /*
-      |--------------------------------------------------------------------------
-      | EMPTY RESPONSE FALLBACK
-      |--------------------------------------------------------------------------
-      */
-
-      if (
-        !assistantContent.trim()
-      ) {
-        setMessages(
-          (previous) =>
-            previous.map(
-              (currentMessage) =>
-                currentMessage.id ===
-                assistantMessageId
-                  ? {
-                      ...currentMessage,
-
-                      content:
-                        "AI tidak memberikan response.",
-                    }
-                  : currentMessage
-            )
-        );
-      }
+      await refreshAISettings();
     } catch (error) {
       console.error(
         "Send message error:",
@@ -689,29 +502,27 @@ export default function Home() {
       |--------------------------------------------------------------------------
       */
 
+      const errorText =
+        error instanceof Error
+          ? error.message
+          : "Terjadi kesalahan saat menghubungi AI.";
+
       const errorMessage:
         ChatMessage = {
-          id:
-            crypto.randomUUID(),
+          id: crypto.randomUUID(),
 
-          role:
-            "assistant",
+          role: "assistant",
 
           content:
-            error instanceof Error
-              ? `Error: ${error.message}`
-              : "Terjadi kesalahan.",
+            `Error: ${errorText}`,
 
-          createdAt:
-            Date.now(),
+          createdAt: Date.now(),
         };
 
-      setMessages(
-        (previous) => [
-          ...previous,
-          errorMessage,
-        ]
-      );
+      setMessages((previous) => [
+        ...previous,
+        errorMessage,
+      ]);
     } finally {
       setLoading(false);
     }
@@ -729,13 +540,8 @@ export default function Home() {
     }
 
     setMessages([]);
-
     setMessage("");
-
-    setConversationId(
-      null
-    );
-
+    setConversationId(null);
     setUsage(0);
 
     try {
@@ -763,88 +569,49 @@ export default function Home() {
   return (
     <div className="app-shell">
 
-      {/* DESKTOP SIDEBAR */}
+      {/* ================================================================
+          DESKTOP SIDEBAR
+      ================================================================ */}
+<Sidebar
+  models={models}
+  selectedModel={selectedModel}
+  onModelChange={setSelectedModel}
+  messages={messages}
+  onNewChat={newChat}
+  usage={usage}
+  maxUsage={MAX_FREE_USAGE}
+  aiSettings={aiSettings}
+/>
 
-      <Sidebar
-        models={
-          models
-        }
-
-        selectedModel={
-          selectedModel
-        }
-
-        onModelChange={
-          setSelectedModel
-        }
-
-        messages={
-          messages
-        }
-
-        onNewChat={
-          newChat
-        }
-
-        usage={
-          usage
-        }
-
-        maxUsage={
-          10
-        }
-      />
-
-      {/* MOBILE SIDEBAR */}
+      {/* ================================================================
+          MOBILE SIDEBAR
+      ================================================================ */}
 
       <MobileSidebar
-        open={
-          mobileSidebar
-        }
+  open={mobileSidebar}
+  onClose={() => setMobileSidebar(false)}
+  models={models}
+  selectedModel={selectedModel}
+  onModelChange={setSelectedModel}
+  messages={messages}
+  onNewChat={newChat}
+  usage={usage}
+  maxUsage={MAX_FREE_USAGE}
+  aiSettings={aiSettings}
+/>
 
-        onClose={() =>
-          setMobileSidebar(
-            false
-          )
-        }
-
-        models={
-          models
-        }
-
-        selectedModel={
-          selectedModel
-        }
-
-        onModelChange={
-          setSelectedModel
-        }
-
-        messages={
-          messages
-        }
-
-        onNewChat={
-          newChat
-        }
-
-        usage={
-          usage
-        }
-
-        maxUsage={
-          10
-        }
-      />
-
-      {/* MAIN */}
+      {/* ================================================================
+          MAIN CONTENT
+      ================================================================ */}
 
       <main className="main-content">
 
+        {/* ============================================================
+            HEADER
+        ============================================================ */}
+
         <ChatHeader
-          models={
-            models
-          }
+          models={models}
 
           selectedModel={
             selectedModel
@@ -855,32 +622,36 @@ export default function Home() {
           }
 
           onOpenSidebar={() =>
-            setMobileSidebar(
-              true
-            )
+            setMobileSidebar(true)
           }
         />
 
+        {/* ============================================================
+            CHAT LAYOUT
+        ============================================================ */}
+
         <div className="chat-layout">
 
-          <ChatArea
-            messages={
-              messages
-            }
+          {/* ==========================================================
+              CHAT AREA
+          ========================================================== */}
 
-            loading={
-              loading
-            }
+          <ChatArea
+            messages={messages}
+
+            loading={loading}
 
             selectedModel={
               selectedModel
             }
           />
 
+          {/* ==========================================================
+              COMPOSER
+          ========================================================== */}
+
           <Composer
-            value={
-              message
-            }
+            value={message}
 
             onChange={
               setMessage
@@ -890,15 +661,11 @@ export default function Home() {
               sendMessage
             }
 
-            loading={
-              loading
-            }
+            loading={loading}
           />
 
         </div>
-
       </main>
-
     </div>
   );
 }

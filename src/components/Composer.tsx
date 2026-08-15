@@ -3,7 +3,9 @@
 import {
   FormEvent,
   KeyboardEvent,
+  useEffect,
   useRef,
+  useState,
 } from "react";
 
 interface ComposerProps {
@@ -22,12 +24,57 @@ export default function Composer({
   const textareaRef =
     useRef<HTMLTextAreaElement>(null);
 
+  const [aiName, setAIName] =
+    useState("NEXA");
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSettings() {
+      try {
+        const response =
+          await fetch(
+            "/api/ai-settings",
+            {
+              cache: "no-store",
+            }
+          );
+
+        if (!response.ok) return;
+
+        const data =
+          await response.json();
+
+        if (
+          mounted &&
+          data.success &&
+          data.settings?.aiName
+        ) {
+          setAIName(
+            data.settings.aiName
+          );
+        }
+      } catch {
+        // Keep default.
+      }
+    }
+
+    loadSettings();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   function submit(
     event: FormEvent
   ) {
     event.preventDefault();
 
-    if (!loading && value.trim()) {
+    if (
+      !loading &&
+      value.trim()
+    ) {
       onSend();
     }
   }
@@ -41,16 +88,19 @@ export default function Composer({
     ) {
       event.preventDefault();
 
-      if (!loading && value.trim()) {
+      if (
+        !loading &&
+        value.trim()
+      ) {
         onSend();
       }
     }
   }
 
   function handleChange(
-    value: string
+    nextValue: string
   ) {
-    onChange(value);
+    onChange(nextValue);
 
     const textarea =
       textareaRef.current;
@@ -89,7 +139,7 @@ export default function Composer({
             )
           }
           onKeyDown={handleKeyDown}
-          placeholder="Message AI Router..."
+          placeholder={`Message ${aiName}...`}
           rows={1}
           disabled={loading}
         />
@@ -98,7 +148,8 @@ export default function Composer({
           type="submit"
           className="send-button"
           disabled={
-            loading || !value.trim()
+            loading ||
+            !value.trim()
           }
           aria-label="Send message"
         >
@@ -114,7 +165,7 @@ export default function Composer({
               strokeWidth="2.2"
             >
               <path d="M22 2 11 13" />
-              <path d="m22 2-7 20-4-9-9-4Z" />
+              <path d="m22 2-7 20-9-4Z" />
             </svg>
           )}
         </button>

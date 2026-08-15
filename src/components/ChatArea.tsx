@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
 import Message from "./Message";
 import type { ChatMessage } from "./types";
 
@@ -18,11 +23,53 @@ export default function ChatArea({
   const bottomRef =
     useRef<HTMLDivElement>(null);
 
+  const [aiName, setAIName] =
+    useState("NEXA");
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({
       behavior: "smooth",
     });
   }, [messages, loading]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSettings() {
+      try {
+        const response =
+          await fetch(
+            "/api/ai-settings",
+            {
+              cache: "no-store",
+            }
+          );
+
+        if (!response.ok) return;
+
+        const data =
+          await response.json();
+
+        if (
+          mounted &&
+          data.success &&
+          data.settings?.aiName
+        ) {
+          setAIName(
+            data.settings.aiName
+          );
+        }
+      } catch {
+        // Keep default.
+      }
+    }
+
+    loadSettings();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   if (messages.length === 0) {
     return (
@@ -37,9 +84,9 @@ export default function ChatArea({
           </h1>
 
           <p>
-            Ask anything. AI Router will
-            choose the right model for the
-            task.
+            Ask anything. {aiName} will
+            choose the right model for
+            the task.
           </p>
 
           <div className="suggestion-grid">
@@ -94,12 +141,17 @@ export default function ChatArea({
         {loading && (
           <div className="message-row assistant">
             <div className="message-avatar ai-avatar">
-              ✦
+              {aiName
+                .trim()
+                .charAt(0)
+                .toUpperCase()}
             </div>
 
             <div className="message-column">
               <div className="message-meta">
-                <strong>AI Router</strong>
+                <strong>
+                  {aiName}
+                </strong>
               </div>
 
               <div className="typing-bubble">

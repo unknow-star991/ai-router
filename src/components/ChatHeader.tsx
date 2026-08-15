@@ -5,9 +5,7 @@ import {
   useState,
 } from "react";
 
-import type {
-  ModelInfo,
-} from "./types";
+import type { ModelInfo } from "./types";
 
 interface ChatHeaderProps {
   models: ModelInfo[];
@@ -26,30 +24,26 @@ interface AISettings {
   accentColor?: string;
 }
 
+const DEFAULT_SETTINGS: AISettings = {
+  aiName: "NEXA",
+  appName: "AI Router",
+};
+
 export default function ChatHeader({
   models,
   selectedModel,
   onModelChange,
   onOpenSidebar,
 }: ChatHeaderProps) {
-  const [
-    settings,
-    setSettings,
-  ] = useState<AISettings>({
-    aiName: "A",
-    appName: "AI Router",
-  });
+  const [settings, setSettings] =
+    useState<AISettings>(
+      DEFAULT_SETTINGS
+    );
 
   const [
     loadingSettings,
     setLoadingSettings,
   ] = useState(true);
-
-  /*
-  |--------------------------------------------------------------------------
-  | LOAD AI SETTINGS
-  |--------------------------------------------------------------------------
-  */
 
   useEffect(() => {
     let mounted = true;
@@ -67,7 +61,7 @@ export default function ChatHeader({
 
         if (!response.ok) {
           throw new Error(
-            "Failed to load AI settings"
+            `Failed to load AI settings: ${response.status}`
           );
         }
 
@@ -82,11 +76,11 @@ export default function ChatHeader({
           setSettings({
             aiName:
               data.settings.aiName ||
-              "A",
+              DEFAULT_SETTINGS.aiName,
 
             appName:
               data.settings.appName ||
-              "AI Router",
+              DEFAULT_SETTINGS.appName,
 
             personality:
               data.settings.personality,
@@ -100,7 +94,7 @@ export default function ChatHeader({
         }
       } catch (error) {
         console.error(
-          "AI SETTINGS LOAD ERROR:",
+          "AI settings loading error:",
           error
         );
       } finally {
@@ -117,12 +111,6 @@ export default function ChatHeader({
     };
   }, []);
 
-  /*
-  |--------------------------------------------------------------------------
-  | FIND SELECTED MODEL
-  |--------------------------------------------------------------------------
-  */
-
   const selectedModelInfo =
     models.find(
       (model) =>
@@ -135,17 +123,21 @@ export default function ChatHeader({
       : selectedModelInfo?.name ??
         selectedModel;
 
-  /*
-  |--------------------------------------------------------------------------
-  | UI
-  |--------------------------------------------------------------------------
-  */
+  const aiName =
+    settings.aiName || "NEXA";
+
+  const appName =
+    settings.appName || "AI Router";
+
+  const avatarLetter =
+    aiName
+      .trim()
+      .charAt(0)
+      .toUpperCase() || "N";
 
   return (
     <header className="chat-header">
       <div className="chat-header-left">
-        {/* Mobile sidebar button */}
-
         {onOpenSidebar && (
           <button
             type="button"
@@ -159,38 +151,30 @@ export default function ChatHeader({
           </button>
         )}
 
-        {/* AI avatar */}
-
         <div className="chat-ai-avatar">
           <span>
             {loadingSettings
               ? "✦"
-              : settings.aiName
-                  .charAt(0)
-                  .toUpperCase()}
+              : avatarLetter}
           </span>
         </div>
-
-        {/* AI information */}
 
         <div className="chat-header-info">
           <div className="chat-header-title">
             <span>
               {loadingSettings
-                ? "AI"
-                : settings.aiName}
+                ? "NEXA"
+                : aiName}
             </span>
 
             <span className="ai-status-dot" />
           </div>
 
           <div className="chat-header-subtitle">
-            {settings.appName}
+            {appName}
           </div>
         </div>
       </div>
-
-      {/* Model selector */}
 
       <div className="chat-header-right">
         <div className="model-selector-wrapper">

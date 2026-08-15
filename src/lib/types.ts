@@ -1,41 +1,45 @@
-export type TaskType =
-  | "general"
-  | "coding"
-  | "reasoning"
-  | "creative"
-  | "vision"
-  | "image-edit";
-
 export type ModelTier =
   | "free"
-  | "token";
+  | "token"
+  | "limited";
 
-export interface ModelConfig {
+export type AIProvider =
+  | "openrouter"
+  | "groq"
+  | "google";
+
+export interface ModelInfo {
   id: string;
   name: string;
+  provider: AIProvider;
 
-  provider: "openrouter";
+  capabilities?: string[];
 
-  tier: ModelTier;
+  priority?: number;
+  speed?: number;
+  quality?: number;
+  cost?: number;
 
-  description: string;
+  tier?: ModelTier;
 
-  capabilities: TaskType[];
-
-  priority: number;
-  speed: number;
-  quality: number;
-
-  context?: string;
-
+  description?: string;
   supportsImageInput?: boolean;
-  supportsImageGeneration?: boolean;
-
   tags?: string[];
 }
 
-export interface RouterResult {
-  model: ModelConfig;
-  task: TaskType;
-  reason: string;
+export interface ModelConfig extends ModelInfo {}
+
+export interface ChatMessage {
+  id: string;
+
+  role:
+    | "user"
+    | "assistant"
+    | "system";
+
+  content: string;
+
+  model?: string;
+
+  createdAt?: number;
 }

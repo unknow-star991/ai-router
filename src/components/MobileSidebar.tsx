@@ -1,21 +1,40 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import Sidebar from "./Sidebar";
+
 import type {
   ChatMessage,
   ModelInfo,
 } from "./types";
 
+import type {
+  AISettings,
+} from "@/lib/ai-settings-types";
+
 interface MobileSidebarProps {
   open: boolean;
+
   onClose: () => void;
+
   models: ModelInfo[];
+
   selectedModel: string;
-  onModelChange: (model: string) => void;
+
+  onModelChange: (
+    model: string
+  ) => void;
+
   messages: ChatMessage[];
+
   onNewChat: () => void;
+
   usage: number;
+
   maxUsage: number;
+
+  aiSettings: AISettings | null;
 }
 
 export default function MobileSidebar({
@@ -28,45 +47,55 @@ export default function MobileSidebar({
   onNewChat,
   usage,
   maxUsage,
+  aiSettings,
 }: MobileSidebarProps) {
   if (!open) {
     return null;
   }
 
-  const handleModelChange = (model: string) => {
-    onModelChange(model);
-    onClose();
-  };
-
-  const handleNewChat = () => {
-    onNewChat();
-    onClose();
-  };
-
   return (
-    <div
-      className="mobile-sidebar-layer"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Mobile sidebar"
-    >
+    <div className="mobile-sidebar-layer">
+
+      {/* BACKDROP */}
+
       <button
         type="button"
         className="mobile-sidebar-backdrop"
-        onClick={onClose}
         aria-label="Close sidebar"
+        onClick={onClose}
       />
 
+      {/* SIDEBAR */}
+
       <div className="mobile-sidebar-panel">
+
         <Sidebar
           models={models}
-          selectedModel={selectedModel}
-          onModelChange={handleModelChange}
+
+          selectedModel={
+            selectedModel
+          }
+
+          onModelChange={
+            onModelChange
+          }
+
           messages={messages}
-          onNewChat={handleNewChat}
+
+          onNewChat={() => {
+            onNewChat();
+            onClose();
+          }}
+
           usage={usage}
+
           maxUsage={maxUsage}
+
+          aiSettings={
+            aiSettings
+          }
         />
+
       </div>
     </div>
   );
