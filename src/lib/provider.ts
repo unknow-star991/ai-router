@@ -1,9 +1,11 @@
 import type { ModelConfig } from "./types";
+import type { ChatMessage } from "@/components/types";
 
 const OPENROUTER_API_URL =
   "https://openrouter.ai/api/v1/chat/completions";
 
-const apiKey = process.env.OPENROUTER_API_KEY;
+const apiKey =
+  process.env.OPENROUTER_API_KEY;
 
 /*
 |--------------------------------------------------------------------------
@@ -18,6 +20,7 @@ Your goal is to provide accurate, useful, natural, and context-aware answers.
 
 GENERAL RULES:
 - Understand what the user is actually asking before answering.
+- Use the conversation history to understand context, references, and previous decisions.
 - Do not blindly accept information provided by the user as factual.
 - If the user's input contains incorrect, misleading, outdated, or fabricated information, identify and correct it clearly.
 - Never invent facts, sources, names, dates, statistics, or events.
@@ -30,6 +33,14 @@ GENERAL RULES:
 - When correcting the user, explain why something is incorrect.
 - Use headings, bullet points, tables, or examples when they improve clarity.
 - Do not repeat the user's entire message unnecessarily.
+
+CONVERSATION MEMORY:
+- Use previous messages as context for the current conversation.
+- Understand references such as "dia", "itu", "yang tadi", "sebelumnya", and similar expressions using conversation history.
+- Do not assume information from previous messages is permanently true if the user later corrects it.
+- If the user changes their preference, use the latest information.
+- Do not mention that you have memory unless it is relevant to the conversation.
+- Treat the conversation history as context, not as guaranteed factual truth.
 
 FOR LONG USER INPUT:
 - Determine what the user actually wants before responding.
@@ -59,6 +70,7 @@ CONVERSATION STYLE:
 ANSWER QUALITY:
 Before responding, silently verify:
 - Did I understand the user's actual request?
+- Did I use the relevant conversation history?
 - Did I accidentally accept a false premise?
 - Are the important facts correct?
 - Am I answering the question rather than merely repeating the input?
@@ -345,7 +357,7 @@ export const models: ModelConfig[] = [
 */
 
 export async function runOpenRouter(
-  message: string,
+  messages: ChatMessage[],
   model: string
 ): Promise<string> {
   if (!apiKey) {
@@ -353,6 +365,25 @@ export async function runOpenRouter(
       "OPENROUTER_API_KEY belum ditemukan di .env.local"
     );
   }
+
+  /*
+  |--------------------------------------------------------------------------
+  | PREPARE CONVERSATION
+  |--------------------------------------------------------------------------
+  */
+
+  const conversation = messages.map(
+    (message) => ({
+      role: message.role,
+      content: message.content,
+    })
+  );
+
+  /*
+  |--------------------------------------------------------------------------
+  | API REQUEST
+  |--------------------------------------------------------------------------
+  */
 
   const response = await fetch(
     OPENROUTER_API_URL,
@@ -381,16 +412,20 @@ export async function runOpenRouter(
             content: SYSTEM_PROMPT,
           },
 
-          {
-            role: "user",
-            content: message,
-          },
+          ...conversation,
         ],
       }),
     }
   );
 
-  const data = await response.json();
+  const data =
+    await response.json();
+
+  /*
+  |--------------------------------------------------------------------------
+  | ERROR HANDLING
+  |--------------------------------------------------------------------------
+  */
 
   if (!response.ok) {
     console.error(
@@ -403,6 +438,12 @@ export async function runOpenRouter(
         `OpenRouter error: ${response.status}`
     );
   }
+
+  /*
+  |--------------------------------------------------------------------------
+  | EXTRACT RESPONSE
+  |--------------------------------------------------------------------------
+  */
 
   const content =
     data?.choices?.[0]?.message?.content;

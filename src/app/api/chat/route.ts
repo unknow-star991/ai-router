@@ -14,19 +14,29 @@ export async function POST(
   request: NextRequest
 ) {
   try {
-    const body = await request.json();
+    const body =
+      await request.json();
 
-    const message = body.message;
-    const requestedModel = body.model;
+    const messages =
+      body.messages;
+
+    const requestedModel =
+      body.model;
+
+    /*
+    |--------------------------------------------------------------------------
+    | VALIDATE MESSAGES
+    |--------------------------------------------------------------------------
+    */
 
     if (
-      !message ||
-      typeof message !== "string"
+      !Array.isArray(messages) ||
+      messages.length === 0
     ) {
       return NextResponse.json(
         {
           error:
-            "Message is required",
+            "Messages are required",
         },
         {
           status: 400,
@@ -34,16 +44,82 @@ export async function POST(
       );
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | VALIDATE MESSAGE CONTENT
+    |--------------------------------------------------------------------------
+    */
+
+    const validMessages =
+      messages.every(
+        (item) =>
+          item &&
+          typeof item === "object" &&
+          (item.role === "user" ||
+            item.role === "assistant") &&
+          typeof item.content ===
+            "string"
+      );
+
+    if (!validMessages) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid message format.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | GET LATEST USER MESSAGE
+    |--------------------------------------------------------------------------
+    */
+
+    const latestUserMessage =
+      [...messages]
+        .reverse()
+        .find(
+          (item) =>
+            item.role === "user"
+        );
+
+    if (!latestUserMessage) {
+      return NextResponse.json(
+        {
+          error:
+            "User message is required.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    const message =
+      latestUserMessage.content;
+
+    /*
+    |--------------------------------------------------------------------------
+    | SELECT MODEL
+    |--------------------------------------------------------------------------
+    */
+
     let selectedModel;
 
     if (
       requestedModel &&
       requestedModel !== "auto"
     ) {
-      selectedModel = models.find(
-        (model) =>
-          model.id === requestedModel
-      );
+      selectedModel =
+        models.find(
+          (model) =>
+            model.id ===
+            requestedModel
+        );
 
       if (!selectedModel) {
         return NextResponse.json(
@@ -64,6 +140,12 @@ export async function POST(
         routing.model;
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | PROVIDER CHECK
+    |--------------------------------------------------------------------------
+    */
+
     if (
       selectedModel.provider !==
       "openrouter"
@@ -73,11 +155,23 @@ export async function POST(
       );
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | RUN AI
+    |--------------------------------------------------------------------------
+    */
+
     const response =
       await runOpenRouter(
-        message,
+        messages,
         selectedModel.id
       );
+
+    /*
+    |--------------------------------------------------------------------------
+    | RESPONSE
+    |--------------------------------------------------------------------------
+    */
 
     return NextResponse.json({
       success: true,

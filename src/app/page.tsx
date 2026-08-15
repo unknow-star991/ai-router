@@ -41,6 +41,12 @@ export default function Home() {
   const [usage, setUsage] =
     useState(0);
 
+  /*
+  |--------------------------------------------------------------------------
+  | LOAD CHAT HISTORY
+  |--------------------------------------------------------------------------
+  */
+
   useEffect(() => {
     try {
       const saved =
@@ -64,12 +70,30 @@ export default function Home() {
     }
   }, []);
 
+  /*
+  |--------------------------------------------------------------------------
+  | SAVE CHAT HISTORY
+  |--------------------------------------------------------------------------
+  */
+
   useEffect(() => {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(messages)
-    );
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(messages)
+      );
+    } catch {
+      console.error(
+        "Failed to save history"
+      );
+    }
   }, [messages]);
+
+  /*
+  |--------------------------------------------------------------------------
+  | LOAD MODELS
+  |--------------------------------------------------------------------------
+  */
 
   useEffect(() => {
     async function loadModels() {
@@ -103,6 +127,12 @@ export default function Home() {
     loadModels();
   }, []);
 
+  /*
+  |--------------------------------------------------------------------------
+  | SEND MESSAGE
+  |--------------------------------------------------------------------------
+  */
+
   async function sendMessage() {
     const text = message.trim();
 
@@ -117,11 +147,16 @@ export default function Home() {
       createdAt: Date.now(),
     };
 
-    setMessages((previous) => [
-      ...previous,
+    /*
+     * Bu adalah history yang akan dikirim
+     * ke AI, termasuk pesan user terbaru.
+     */
+    const conversation = [
+      ...messages,
       userMessage,
-    ]);
+    ];
 
+    setMessages(conversation);
     setMessage("");
     setLoading(true);
     setUsage((value) => value + 1);
@@ -137,7 +172,7 @@ export default function Home() {
           },
 
           body: JSON.stringify({
-            message: text,
+            messages: conversation,
             model: selectedModel,
           }),
         });
@@ -189,6 +224,12 @@ export default function Home() {
     }
   }
 
+  /*
+  |--------------------------------------------------------------------------
+  | NEW CHAT
+  |--------------------------------------------------------------------------
+  */
+
   function newChat() {
     if (loading) return;
 
@@ -199,6 +240,12 @@ export default function Home() {
       STORAGE_KEY
     );
   }
+
+  /*
+  |--------------------------------------------------------------------------
+  | UI
+  |--------------------------------------------------------------------------
+  */
 
   return (
     <div className="app-shell">
