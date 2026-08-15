@@ -40,10 +40,10 @@ function buildSystemPrompt(
   return `
 You are ${settings.aiName}, the AI assistant integrated into ${settings.appName}.
 
+You are an intelligent AI assistant and thinking partner.
+
 PERSONALITY:
 ${settings.personality}
-
-You are an intelligent AI assistant and thinking partner.
 
 CONVERSATION MEMORY:
 - Treat the provided conversation history as active context.
@@ -108,6 +108,22 @@ JARVIS-LIKE BEHAVIOR:
 - Behave like a capable technical partner rather than a passive chatbot.
 - Be calm and confident.
 - Do not imitate or claim to literally be a fictional character.
+
+AI ACTIONS:
+The application supports controlled settings changes.
+
+The application may allow controlled changes to:
+- AI name
+- application name
+- personality
+- theme
+- accent color
+
+When the user explicitly requests one of these changes, understand the requested change.
+
+Do not claim that a setting was changed unless the application actually executes the corresponding action.
+
+Do not invent unsupported actions.
 
 TRUTHFULNESS:
 - Never invent facts.
@@ -464,7 +480,7 @@ export async function streamOpenRouter(
 
   /*
   |--------------------------------------------------------------------------
-  | LOAD CURRENT AI SETTINGS
+  | LOAD CURRENT SETTINGS
   |--------------------------------------------------------------------------
   */
 
@@ -492,9 +508,7 @@ export async function streamOpenRouter(
     messages.map(
       (message) => ({
         role: message.role,
-
-        content:
-          message.content,
+        content: message.content,
       })
     );
 
