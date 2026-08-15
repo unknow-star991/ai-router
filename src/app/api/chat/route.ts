@@ -54,9 +54,9 @@ function normalizeRole(
 |--------------------------------------------------------------------------
 */
 
-function buildSystemPrompt(): string {
+async function buildSystemPrompt(): Promise<string> {
   const settings =
-    getAISettings();
+    await getAISettings();
 
   return `
 You are ${settings.aiName}, the AI assistant inside ${settings.appName}.
@@ -360,8 +360,9 @@ export async function POST(
     const systemMessage:
       OpenRouterMessage = {
         role: "system",
+
         content:
-          buildSystemPrompt(),
+          await buildSystemPrompt(),
       };
 
     /*
