@@ -120,8 +120,10 @@ export async function POST(
     */
 
     const userMessageId =
-      latestUserMessage.id ||
-      crypto.randomUUID();
+      typeof latestUserMessage.id ===
+        "string"
+        ? latestUserMessage.id
+        : crypto.randomUUID();
 
     await saveMessage({
       id: userMessageId,
@@ -136,7 +138,7 @@ export async function POST(
 
     /*
     |--------------------------------------------------------------------------
-    | LOAD DATABASE HISTORY
+    | LOAD CONVERSATION FROM DATABASE
     |--------------------------------------------------------------------------
     */
 
@@ -148,6 +150,9 @@ export async function POST(
     /*
     |--------------------------------------------------------------------------
     | CONVERT DATABASE MESSAGES
+    |
+    | Provider tidak membutuhkan ChatMessage UI.
+    | OpenRouter hanya membutuhkan role + content.
     |--------------------------------------------------------------------------
     */
 
@@ -160,7 +165,9 @@ export async function POST(
               | "assistant",
 
           content:
-            message.content,
+            String(
+              message.content
+            ),
         })
       );
 
@@ -243,6 +250,12 @@ export async function POST(
       );
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | STREAM READER
+    |--------------------------------------------------------------------------
+    */
+
     const reader =
       upstream.body.getReader();
 
@@ -256,7 +269,7 @@ export async function POST(
 
     /*
     |--------------------------------------------------------------------------
-    | STREAM TO CLIENT
+    | CREATE RESPONSE STREAM
     |--------------------------------------------------------------------------
     */
 
@@ -292,12 +305,18 @@ export async function POST(
 
               /*
               |----------------------------------------------------
-              | Keep last incomplete line
+              | Keep incomplete SSE line
               |----------------------------------------------------
               */
 
               buffer =
                 lines.pop() ?? "";
+
+              /*
+              |----------------------------------------------------
+              | Process SSE lines
+              |----------------------------------------------------
+              */
 
               for (
                 const line of lines
@@ -340,7 +359,7 @@ export async function POST(
 
                   if (
                     typeof content ===
-                    "string" &&
+                      "string" &&
                     content.length > 0
                   ) {
                     fullResponse +=
@@ -355,7 +374,7 @@ export async function POST(
                 } catch {
                   /*
                   |----------------------------------------------
-                  | Ignore malformed SSE chunks
+                  | Ignore invalid SSE chunks
                   |----------------------------------------------
                   */
                 }
@@ -392,6 +411,12 @@ export async function POST(
               );
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | CLOSE STREAM
+            |--------------------------------------------------------------------------
+            */
+
             controller.close();
           } catch (error) {
             console.error(
@@ -410,7 +435,7 @@ export async function POST(
 
     /*
     |--------------------------------------------------------------------------
-    | RESPONSE
+    | RETURN STREAM
     |--------------------------------------------------------------------------
     */
 
