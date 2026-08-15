@@ -16,7 +16,7 @@ import type {
   ModelInfo,
 } from "@/components/types";
 
-import type { AISettings } from "@/lib/ai-settings-types.ts";
+import type { AISettings } from "@/lib/ai-settings-types";
 
 const STORAGE_KEY =
   "ai-router-messages";
@@ -285,17 +285,19 @@ export default function Home() {
     |--------------------------------------------------------------------------
     */
 
-    const userMessage: ChatMessage =
-      {
-        id: crypto.randomUUID(),
-        role: "user",
-        content: text,
-        createdAt: Date.now(),
-      };
+    const userMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+
+      role: "user",
+
+      content: text,
+
+      createdAt: Date.now(),
+    };
 
     /*
     |--------------------------------------------------------------------------
-    | UPDATE UI IMMEDIATELY
+    | SAVE MESSAGE TO UI
     |--------------------------------------------------------------------------
     */
 
@@ -317,7 +319,7 @@ export default function Home() {
     try {
       /*
       |--------------------------------------------------------------------------
-      | SEND TO API
+      | SEND REQUEST
       |--------------------------------------------------------------------------
       */
 
@@ -351,65 +353,121 @@ export default function Home() {
 
       /*
       |--------------------------------------------------------------------------
-      | PARSE RESPONSE
+      | HANDLE ERROR RESPONSE
       |--------------------------------------------------------------------------
       */
-
-      const data =
-        await response.json();
 
       if (!response.ok) {
+        let errorMessage =
+          "AI request failed.";
+
+        try {
+          const errorData =
+            await response.json();
+
+          errorMessage =
+            errorData.error ??
+            errorData.message ??
+            errorMessage;
+        } catch {
+          try {
+            const errorText =
+              await response.text();
+
+            if (
+              errorText.trim()
+            ) {
+              errorMessage =
+                errorText;
+            }
+          } catch {
+            // Ignore parsing error
+          }
+        }
+
         throw new Error(
-          data.error ??
-            "AI request failed"
+          errorMessage
         );
       }
 
       /*
       |--------------------------------------------------------------------------
-      | UPDATE CONVERSATION ID
+      | GET CONVERSATION ID
       |--------------------------------------------------------------------------
       */
 
+      const returnedConversationId =
+        response.headers.get(
+          "X-Conversation-Id"
+        );
+
       if (
-        data.conversationId
+        returnedConversationId
       ) {
         setConversationId(
-          data.conversationId
+          returnedConversationId
         );
       }
 
       /*
       |--------------------------------------------------------------------------
-      | CREATE ASSISTANT MESSAGE
+      | GET ACTUAL MODEL
+      |--------------------------------------------------------------------------
+      */
+
+      const returnedModel =
+        response.headers.get(
+          "X-Model"
+        );
+
+      /*
+      |--------------------------------------------------------------------------
+      | GET STREAM READER
+      |--------------------------------------------------------------------------
+      */
+
+      const reader =
+        response.body?.getReader();
+
+      if (!reader) {
+        throw new Error(
+          "Response stream tidak tersedia."
+        );
+      }
+
+      const decoder =
+        new TextDecoder();
+
+      let assistantContent =
+        "";
+
+      const assistantMessageId =
+        crypto.randomUUID();
+
+      /*
+      |--------------------------------------------------------------------------
+      | CREATE EMPTY ASSISTANT MESSAGE
       |--------------------------------------------------------------------------
       */
 
       const assistantMessage:
         ChatMessage = {
           id:
-            crypto.randomUUID(),
+            assistantMessageId,
 
           role:
             "assistant",
 
           content:
-            data.response ??
-            "AI tidak memberikan response.",
+            "",
 
           model:
-            data.model ??
+            returnedModel ??
             selectedModel,
 
           createdAt:
             Date.now(),
         };
-
-      /*
-      |--------------------------------------------------------------------------
-      | ADD ASSISTANT MESSAGE
-      |--------------------------------------------------------------------------
-      */
 
       setMessages(
         (previous) => [
@@ -420,19 +478,111 @@ export default function Home() {
 
       /*
       |--------------------------------------------------------------------------
-      | REFRESH AI SETTINGS
+      | READ STREAM
       |--------------------------------------------------------------------------
-      |
-      | Ini berguna kalau nanti AI mengubah
-      | nama dirinya sendiri.
-      |
+      */
+
+      while (true) {
+        const {
+          done,
+          value,
+        } =
+          await reader.read();
+
+        if (done) {
+          break;
+        }
+
+        const chunk =
+          decoder.decode(
+            value,
+            {
+              stream: true,
+            }
+          );
+
+        if (!chunk) {
+          continue;
+        }
+
+        assistantContent +=
+          chunk;
+
+        /*
+        | Update assistant message
+        | secara realtime
+        */
+
+        setMessages(
+          (previous) =>
+            previous.map(
+              (currentMessage) =>
+                currentMessage.id ===
+                assistantMessageId
+                  ? {
+                      ...currentMessage,
+
+                      content:
+                        assistantContent,
+                    }
+                  : currentMessage
+            )
+        );
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | FLUSH DECODER
+      |--------------------------------------------------------------------------
+      */
+
+      const finalChunk =
+        decoder.decode();
+
+      if (finalChunk) {
+        assistantContent +=
+          finalChunk;
+
+        setMessages(
+          (previous) =>
+            previous.map(
+              (currentMessage) =>
+                currentMessage.id ===
+                assistantMessageId
+                  ? {
+                      ...currentMessage,
+
+                      content:
+                        assistantContent,
+                    }
+                  : currentMessage
+            )
+        );
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | FALLBACK
+      |--------------------------------------------------------------------------
       */
 
       if (
-        data.settings
+        !assistantContent.trim()
       ) {
-        setAISettings(
-          data.settings
+        setMessages(
+          (previous) =>
+            previous.map(
+              (currentMessage) =>
+                currentMessage.id ===
+                assistantMessageId
+                  ? {
+                      ...currentMessage,
+
+                      content:
+                        "AI tidak memberikan response.",
+                    }
+                  : currentMessage
+            )
         );
       }
     } catch (error) {
@@ -525,17 +675,23 @@ export default function Home() {
 
       <Sidebar
         models={models}
+
         selectedModel={
           selectedModel
         }
+
         onModelChange={
           setSelectedModel
         }
+
         messages={messages}
+
         onNewChat={
           newChat
         }
+
         usage={usage}
+
         maxUsage={10}
       />
 
@@ -545,23 +701,31 @@ export default function Home() {
         open={
           mobileSidebar
         }
+
         onClose={() =>
           setMobileSidebar(
             false
           )
         }
+
         models={models}
+
         selectedModel={
           selectedModel
         }
+
         onModelChange={
           setSelectedModel
         }
+
         messages={messages}
+
         onNewChat={
           newChat
         }
+
         usage={usage}
+
         maxUsage={10}
       />
 
@@ -571,12 +735,15 @@ export default function Home() {
 
         <ChatHeader
           models={models}
+
           selectedModel={
             selectedModel
           }
+
           onModelChange={
             setSelectedModel
           }
+
           onOpenSidebar={() =>
             setMobileSidebar(
               true
@@ -590,9 +757,11 @@ export default function Home() {
             messages={
               messages
             }
+
             loading={
               loading
             }
+
             selectedModel={
               selectedModel
             }
@@ -602,12 +771,15 @@ export default function Home() {
             value={
               message
             }
+
             onChange={
               setMessage
             }
+
             onSend={
               sendMessage
             }
+
             loading={
               loading
             }
