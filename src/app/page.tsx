@@ -265,7 +265,7 @@ export default function Home() {
 
     /*
     |--------------------------------------------------------------------------
-    | CREATE CONVERSATION ID
+    | CREATE CONVERSATION
     |--------------------------------------------------------------------------
     */
 
@@ -285,19 +285,24 @@ export default function Home() {
     |--------------------------------------------------------------------------
     */
 
-    const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
+    const userMessage:
+      ChatMessage = {
+        id:
+          crypto.randomUUID(),
 
-      role: "user",
+        role:
+          "user",
 
-      content: text,
+        content:
+          text,
 
-      createdAt: Date.now(),
-    };
+        createdAt:
+          Date.now(),
+      };
 
     /*
     |--------------------------------------------------------------------------
-    | SAVE MESSAGE TO UI
+    | ADD USER MESSAGE
     |--------------------------------------------------------------------------
     */
 
@@ -313,13 +318,14 @@ export default function Home() {
     setLoading(true);
 
     setUsage(
-      (value) => value + 1
+      (value) =>
+        value + 1
     );
 
     try {
       /*
       |--------------------------------------------------------------------------
-      | SEND REQUEST
+      | API REQUEST
       |--------------------------------------------------------------------------
       */
 
@@ -338,7 +344,8 @@ export default function Home() {
               conversationId:
                 activeConversationId,
 
-              message: text,
+              message:
+                text,
 
               model:
                 selectedModel,
@@ -353,7 +360,102 @@ export default function Home() {
 
       /*
       |--------------------------------------------------------------------------
-      | HANDLE ERROR RESPONSE
+      | RESPONSE TYPE
+      |--------------------------------------------------------------------------
+      */
+
+      const contentType =
+        response.headers.get(
+          "content-type"
+        ) ?? "";
+
+      /*
+      |--------------------------------------------------------------------------
+      | JSON RESPONSE
+      |
+      | Digunakan untuk AI ACTION
+      |--------------------------------------------------------------------------
+      */
+
+      if (
+        contentType.includes(
+          "application/json"
+        )
+      ) {
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.error ??
+              data.message ??
+              "AI request failed."
+          );
+        }
+
+        /*
+        | Update conversation ID
+        */
+
+        if (
+          data.conversationId
+        ) {
+          setConversationId(
+            data.conversationId
+          );
+        }
+
+        /*
+        | Update AI settings
+        */
+
+        if (
+          data.settings
+        ) {
+          setAISettings(
+            data.settings
+          );
+        }
+
+        /*
+        | Create assistant response
+        */
+
+        const assistantMessage:
+          ChatMessage = {
+            id:
+              crypto.randomUUID(),
+
+            role:
+              "assistant",
+
+            content:
+              data.response ??
+              "Aksi berhasil dijalankan.",
+
+            model:
+              data.model ??
+              selectedModel,
+
+            createdAt:
+              Date.now(),
+          };
+
+        setMessages(
+          (previous) => [
+            ...previous,
+            assistantMessage,
+          ]
+        );
+
+        return;
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | NORMAL STREAMING RESPONSE
+      |
+      | Digunakan untuk chat biasa
       |--------------------------------------------------------------------------
       */
 
@@ -362,27 +464,17 @@ export default function Home() {
           "AI request failed.";
 
         try {
-          const errorData =
-            await response.json();
+          const errorText =
+            await response.text();
 
-          errorMessage =
-            errorData.error ??
-            errorData.message ??
-            errorMessage;
-        } catch {
-          try {
-            const errorText =
-              await response.text();
-
-            if (
-              errorText.trim()
-            ) {
-              errorMessage =
-                errorText;
-            }
-          } catch {
-            // Ignore parsing error
+          if (
+            errorText.trim()
+          ) {
+            errorMessage =
+              errorText;
           }
+        } catch {
+          // Ignore response parsing error
         }
 
         throw new Error(
@@ -392,7 +484,7 @@ export default function Home() {
 
       /*
       |--------------------------------------------------------------------------
-      | GET CONVERSATION ID
+      | CONVERSATION ID FROM HEADER
       |--------------------------------------------------------------------------
       */
 
@@ -411,7 +503,7 @@ export default function Home() {
 
       /*
       |--------------------------------------------------------------------------
-      | GET ACTUAL MODEL
+      | MODEL FROM HEADER
       |--------------------------------------------------------------------------
       */
 
@@ -422,7 +514,7 @@ export default function Home() {
 
       /*
       |--------------------------------------------------------------------------
-      | GET STREAM READER
+      | STREAM READER
       |--------------------------------------------------------------------------
       */
 
@@ -509,8 +601,8 @@ export default function Home() {
           chunk;
 
         /*
-        | Update assistant message
-        | secara realtime
+        | Update assistant
+        | message realtime
         */
 
         setMessages(
@@ -562,7 +654,7 @@ export default function Home() {
 
       /*
       |--------------------------------------------------------------------------
-      | FALLBACK
+      | EMPTY RESPONSE FALLBACK
       |--------------------------------------------------------------------------
       */
 
@@ -674,7 +766,9 @@ export default function Home() {
       {/* DESKTOP SIDEBAR */}
 
       <Sidebar
-        models={models}
+        models={
+          models
+        }
 
         selectedModel={
           selectedModel
@@ -684,15 +778,21 @@ export default function Home() {
           setSelectedModel
         }
 
-        messages={messages}
+        messages={
+          messages
+        }
 
         onNewChat={
           newChat
         }
 
-        usage={usage}
+        usage={
+          usage
+        }
 
-        maxUsage={10}
+        maxUsage={
+          10
+        }
       />
 
       {/* MOBILE SIDEBAR */}
@@ -708,7 +808,9 @@ export default function Home() {
           )
         }
 
-        models={models}
+        models={
+          models
+        }
 
         selectedModel={
           selectedModel
@@ -718,15 +820,21 @@ export default function Home() {
           setSelectedModel
         }
 
-        messages={messages}
+        messages={
+          messages
+        }
 
         onNewChat={
           newChat
         }
 
-        usage={usage}
+        usage={
+          usage
+        }
 
-        maxUsage={10}
+        maxUsage={
+          10
+        }
       />
 
       {/* MAIN */}
@@ -734,7 +842,9 @@ export default function Home() {
       <main className="main-content">
 
         <ChatHeader
-          models={models}
+          models={
+            models
+          }
 
           selectedModel={
             selectedModel
