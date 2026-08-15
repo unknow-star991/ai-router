@@ -6,9 +6,8 @@ import {
 import {
   models,
   streamOpenRouter,
+  type OpenRouterMessage,
 } from "@/lib/provider";
-
-import { routeAI } from "@/lib/router";
 
 import {
   ensureConversation,
@@ -16,6 +15,29 @@ import {
   getConversationMessages,
   updateConversationTimestamp,
 } from "@/lib/chat-db";
+
+type MessageRole =
+  | "user"
+  | "assistant"
+  | "system";
+
+function createId(): string {
+  return crypto.randomUUID();
+}
+
+function normalizeRole(
+  role: unknown
+): MessageRole {
+  if (role === "assistant") {
+    return "assistant";
+  }
+
+  if (role === "system") {
+    return "system";
+  }
+
+  return "user";
+}
 
 export async function POST(
   request: NextRequest
@@ -25,27 +47,31 @@ export async function POST(
       await request.json();
 
     const conversationId =
-      body.conversationId;
+      typeof body.conversationId ===
+      "string"
+        ? body.conversationId.trim()
+        : "";
 
-    const message =
-      body.message;
+    const incomingMessages =
+      Array.isArray(body.messages)
+        ? body.messages
+        : [];
 
     const requestedModel =
-      body.model;
+      typeof body.model === "string"
+        ? body.model
+        : "openrouter/free";
 
     /*
     |--------------------------------------------------------------------------
-    | VALIDATION
+    | VALIDATE CONVERSATION
     |--------------------------------------------------------------------------
     */
 
-    if (
-      !conversationId ||
-      typeof conversationId !==
-        "string"
-    ) {
+    if (!conversationId) {
       return NextResponse.json(
         {
+          success: false,
           error:
             "conversationId is required.",
         },
@@ -55,15 +81,29 @@ export async function POST(
       );
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | FIND LAST USER MESSAGE
+    |--------------------------------------------------------------------------
+    */
+
+    const lastMessage =
+      incomingMessages[
+        incomingMessages.length - 1
+      ];
+
     if (
-      !message ||
-      typeof message !==
-        "string"
+      !lastMessage ||
+      lastMessage.role !== "user" ||
+      typeof lastMessage.content !==
+        "string" ||
+      !lastMessage.content.trim()
     ) {
       return NextResponse.json(
         {
+          success: false,
           error:
-            "Message is required.",
+            "Pesan user tidak valid.",
         },
         {
           status: 400,
@@ -71,9 +111,12 @@ export async function POST(
       );
     }
 
+    const userContent =
+      lastMessage.content.trim();
+
     /*
     |--------------------------------------------------------------------------
-    | ENSURE CONVERSATION
+    | ENSURE DATABASE CONVERSATION
     |--------------------------------------------------------------------------
     */
 
@@ -88,110 +131,79 @@ export async function POST(
     */
 
     await saveMessage({
-      id:
-        crypto.randomUUID(),
+      id: createId(),
 
       conversationId,
 
       role: "user",
 
-      content: message,
+      content: userContent,
+
+      model:
+        requestedModel || undefined,
     });
 
     /*
     |--------------------------------------------------------------------------
-    | LOAD MEMORY
+    | LOAD CONVERSATION HISTORY
     |--------------------------------------------------------------------------
     */
 
-    const databaseMessages =
+    const history =
       await getConversationMessages(
         conversationId
       );
 
     /*
     |--------------------------------------------------------------------------
-    | PREPARE OPENROUTER CONTEXT
+    | CONVERT DATABASE HISTORY
     |--------------------------------------------------------------------------
     */
 
-    const conversation =
-      databaseMessages.map(
-        (item) => ({
-          role:
-            item.role as
-              | "user"
-              | "assistant",
+    const conversation: OpenRouterMessage[] =
+      history.map(
+        (
+          message
+        ): OpenRouterMessage => ({
+          role: normalizeRole(
+            message.role
+          ),
 
           content:
             String(
-              item.content
+              message.content
             ),
         })
       );
 
     /*
     |--------------------------------------------------------------------------
-    | MODEL SELECTION
+    | SELECT MODEL
     |--------------------------------------------------------------------------
     */
 
-    let selectedModel;
+    const selectedModel =
+      models.find(
+        (model) =>
+          model.id ===
+          requestedModel
+      ) ??
+      models.find(
+        (model) =>
+          model.id ===
+          "openrouter/free"
+      ) ??
+      models[0];
 
-    if (
-      requestedModel &&
-      requestedModel !== "auto"
-    ) {
-      selectedModel =
-        models.find(
-          (model) =>
-            model.id ===
-            requestedModel
-        );
-
-      if (!selectedModel) {
-        return NextResponse.json(
-          {
-            error:
-              "Model tidak ditemukan.",
-          },
-          {
-            status: 400,
-          }
-        );
-      }
-    } else {
-      const routing =
-        routeAI(message);
-
-      selectedModel =
-        routing.model;
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | PROVIDER CHECK
-    |--------------------------------------------------------------------------
-    */
-
-    if (
-      selectedModel.provider !==
-      "openrouter"
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Provider belum didukung.",
-        },
-        {
-          status: 400,
-        }
+    if (!selectedModel) {
+      throw new Error(
+        "Tidak ada model AI yang tersedia."
       );
     }
 
     /*
     |--------------------------------------------------------------------------
-    | START OPENROUTER STREAM
+    | OPENROUTER STREAM
     |--------------------------------------------------------------------------
     */
 
@@ -209,7 +221,7 @@ export async function POST(
 
     /*
     |--------------------------------------------------------------------------
-    | READ OPENROUTER STREAM
+    | STREAM READER
     |--------------------------------------------------------------------------
     */
 
@@ -222,23 +234,22 @@ export async function POST(
     const encoder =
       new TextEncoder();
 
-    let fullResponse =
-      "";
+    let fullResponse = "";
 
     /*
     |--------------------------------------------------------------------------
-    | CREATE SERVER STREAM
+    | RESPONSE STREAM
     |--------------------------------------------------------------------------
     */
 
     const stream =
-      new ReadableStream({
+      new ReadableStream<Uint8Array>({
         async start(
           controller
         ) {
-          try {
-            let buffer = "";
+          let buffer = "";
 
+          try {
             while (true) {
               const {
                 done,
@@ -259,19 +270,10 @@ export async function POST(
                 );
 
               const lines =
-                buffer.split(
-                  "\n"
-                );
+                buffer.split("\n");
 
               buffer =
-                lines.pop() ??
-                "";
-
-              /*
-              |--------------------------------------------------------------------------
-              | PROCESS SSE
-              |--------------------------------------------------------------------------
-              */
+                lines.pop() ?? "";
 
               for (
                 const line of lines
@@ -294,8 +296,7 @@ export async function POST(
                     .trim();
 
                 if (
-                  data ===
-                  "[DONE]"
+                  data === "[DONE]"
                 ) {
                   continue;
                 }
@@ -309,26 +310,26 @@ export async function POST(
                   const content =
                     parsed
                       ?.choices?.[0]
-                      ?.delta
-                      ?.content;
+                      ?.delta?.content;
 
                   if (
-                    typeof content ===
-                      "string" &&
-                    content.length > 0
+                    typeof content !==
+                    "string"
                   ) {
-                    fullResponse +=
-                      content;
-
-                    controller.enqueue(
-                      encoder.encode(
-                        content
-                      )
-                    );
+                    continue;
                   }
+
+                  fullResponse +=
+                    content;
+
+                  controller.enqueue(
+                    encoder.encode(
+                      content
+                    )
+                  );
                 } catch {
                   /*
-                  Ignore invalid SSE chunks.
+                  | Ignore malformed SSE chunk
                   */
                 }
               }
@@ -344,13 +345,11 @@ export async function POST(
               fullResponse.trim()
             ) {
               await saveMessage({
-                id:
-                  crypto.randomUUID(),
+                id: createId(),
 
                 conversationId,
 
-                role:
-                  "assistant",
+                role: "assistant",
 
                 content:
                   fullResponse,
@@ -373,7 +372,7 @@ export async function POST(
             controller.close();
           } catch (error) {
             console.error(
-              "STREAM ERROR:",
+              "CHAT STREAM ERROR:",
               error
             );
 
@@ -388,13 +387,15 @@ export async function POST(
 
     /*
     |--------------------------------------------------------------------------
-    | RESPONSE
+    | RETURN RESPONSE
     |--------------------------------------------------------------------------
     */
 
-    return new Response(
+    return new NextResponse(
       stream,
       {
+        status: 200,
+
         headers: {
           "Content-Type":
             "text/plain; charset=utf-8",
@@ -402,14 +403,11 @@ export async function POST(
           "Cache-Control":
             "no-cache, no-transform",
 
-          "X-AI-Model":
-            selectedModel.name,
-
-          "X-AI-Model-ID":
-            selectedModel.id,
-
-          "X-Conversation-ID":
+          "X-Conversation-Id":
             conversationId,
+
+          "X-Model":
+            selectedModel.id,
         },
       }
     );
@@ -426,7 +424,7 @@ export async function POST(
         error:
           error instanceof Error
             ? error.message
-            : "Unknown error",
+            : "Terjadi kesalahan pada server.",
       },
       {
         status: 500,
