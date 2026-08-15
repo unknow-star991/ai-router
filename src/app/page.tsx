@@ -23,35 +23,17 @@ const CONVERSATION_KEY =
   "ai-router-conversation-id";
 
 export default function Home() {
-  /*
-  |--------------------------------------------------------------------------
-  | CHAT STATE
-  |--------------------------------------------------------------------------
-  */
-
   const [messages, setMessages] =
     useState<ChatMessage[]>([]);
 
   const [conversationId, setConversationId] =
-    useState<string>("");
-
-  /*
-  |--------------------------------------------------------------------------
-  | MODEL STATE
-  |--------------------------------------------------------------------------
-  */
+    useState<string | null>(null);
 
   const [models, setModels] =
     useState<ModelInfo[]>([]);
 
   const [selectedModel, setSelectedModel] =
-    useState("openrouter/free");
-
-  /*
-  |--------------------------------------------------------------------------
-  | UI STATE
-  |--------------------------------------------------------------------------
-  */
+    useState("auto");
 
   const [message, setMessage] =
     useState("");
@@ -67,80 +49,51 @@ export default function Home() {
 
   /*
   |--------------------------------------------------------------------------
-  | INITIALIZE CONVERSATION
+  | LOAD CHAT
   |--------------------------------------------------------------------------
   */
 
   useEffect(() => {
     try {
-      let savedConversationId =
-        localStorage.getItem(
-          CONVERSATION_KEY
-        );
-
-      /*
-      |--------------------------------------------------------------
-      | Create conversation ID if none exists
-      |--------------------------------------------------------------
-      */
-
-      if (!savedConversationId) {
-        savedConversationId =
-          crypto.randomUUID();
-
-        localStorage.setItem(
-          CONVERSATION_KEY,
-          savedConversationId
-        );
-      }
-
-      setConversationId(
-        savedConversationId
-      );
-    } catch (error) {
-      console.error(
-        "Failed to initialize conversation:",
-        error
-      );
-
-      /*
-      |--------------------------------------------------------------
-      | Fallback
-      |--------------------------------------------------------------
-      */
-
-      setConversationId(
-        crypto.randomUUID()
-      );
-    }
-  }, []);
-
-  /*
-  |--------------------------------------------------------------------------
-  | LOAD LOCAL CHAT HISTORY
-  |--------------------------------------------------------------------------
-  */
-
-  useEffect(() => {
-    try {
-      const saved =
+      const savedMessages =
         localStorage.getItem(
           STORAGE_KEY
         );
 
-      if (!saved) {
-        return;
+      if (savedMessages) {
+        const parsed =
+          JSON.parse(savedMessages);
+
+        if (Array.isArray(parsed)) {
+          setMessages(parsed);
+        }
       }
 
-      const parsed =
-        JSON.parse(saved);
+      const savedConversationId =
+        localStorage.getItem(
+          CONVERSATION_KEY
+        );
 
-      if (Array.isArray(parsed)) {
-        setMessages(parsed);
+      if (savedConversationId) {
+        setConversationId(
+          savedConversationId
+        );
+      } else {
+        const newConversationId =
+          crypto.randomUUID();
+
+        localStorage.setItem(
+          CONVERSATION_KEY,
+          newConversationId
+        );
+
+        setConversationId(
+          newConversationId
+        );
       }
     } catch (error) {
       console.error(
-        "Failed to load history:",
+        "Failed to load chat:",
         error
       );
     }
@@ -148,7 +101,7 @@ export default function Home() {
 
   /*
   |--------------------------------------------------------------------------
-  | SAVE LOCAL CHAT HISTORY
+  | SAVE UI HISTORY
   |--------------------------------------------------------------------------
   */
 
@@ -160,7 +113,7 @@ export default function Home() {
       );
     } catch (error) {
       console.error(
-        "Failed to save history:",
+        "Failed to save messages:",
         error
       );
     }
@@ -218,48 +171,43 @@ export default function Home() {
 
     if (
       !text ||
-      loading ||
-      !conversationId
+      loading
     ) {
       return;
     }
 
+    if (!conversationId) {
+      console.error(
+        "Conversation ID belum tersedia."
+      );
+
+      return;
+    }
+
     /*
-    |--------------------------------------------------------------
-    | User message
-    |--------------------------------------------------------------
+    |--------------------------------------------------------------------------
+    | USER MESSAGE
+    |--------------------------------------------------------------------------
     */
 
     const userMessage:
       ChatMessage = {
-      id: crypto.randomUUID(),
+        id:
+          crypto.randomUUID(),
 
-      role: "user",
+        role: "user",
 
-      content: text,
+        content: text,
 
-      createdAt: Date.now(),
-    };
-
-    /*
-    |--------------------------------------------------------------
-    | Conversation sent to API
-    |--------------------------------------------------------------
-    */
-
-    const conversation = [
-      ...messages,
-      userMessage,
-    ];
-
-    /*
-    |--------------------------------------------------------------
-    | Update UI immediately
-    |--------------------------------------------------------------
-    */
+        createdAt:
+          Date.now(),
+      };
 
     setMessages(
-      conversation
+      (previous) => [
+        ...previous,
+        userMessage,
+      ]
     );
 
     setMessage("");
@@ -267,44 +215,15 @@ export default function Home() {
     setLoading(true);
 
     setUsage(
-      (value) => value + 1
-    );
-
-    /*
-    |--------------------------------------------------------------
-    | Create empty assistant message
-    |--------------------------------------------------------------
-    */
-
-    const assistantId =
-      crypto.randomUUID();
-
-    const initialAssistantMessage:
-      ChatMessage = {
-      id: assistantId,
-
-      role: "assistant",
-
-      content: "",
-
-      model:
-        selectedModel,
-
-      createdAt: Date.now(),
-    };
-
-    setMessages(
-      (previous) => [
-        ...previous,
-        initialAssistantMessage,
-      ]
+      (value) =>
+        value + 1
     );
 
     try {
       /*
-      |--------------------------------------------------------------
-      | Send request
-      |--------------------------------------------------------------
+      |--------------------------------------------------------------------------
+      | API REQUEST
+      |--------------------------------------------------------------------------
       */
 
       const response =
@@ -322,20 +241,13 @@ export default function Home() {
               JSON.stringify({
                 conversationId,
 
-                messages:
-                  conversation,
+                message: text,
 
                 model:
                   selectedModel,
               }),
           }
         );
-
-      /*
-      |--------------------------------------------------------------
-      | Error handling
-      |--------------------------------------------------------------
-      */
 
       if (!response.ok) {
         const data =
@@ -352,9 +264,9 @@ export default function Home() {
       }
 
       /*
-      |--------------------------------------------------------------
-      | Check stream
-      |--------------------------------------------------------------
+      |--------------------------------------------------------------------------
+      | READ STREAM
+      |--------------------------------------------------------------------------
       */
 
       if (!response.body) {
@@ -363,20 +275,50 @@ export default function Home() {
         );
       }
 
-      /*
-      |--------------------------------------------------------------
-      | Read stream
-      |--------------------------------------------------------------
-      */
-
       const reader =
         response.body.getReader();
 
       const decoder =
         new TextDecoder();
 
-      let accumulated =
+      const assistantId =
+        crypto.randomUUID();
+
+      let fullResponse =
         "";
+
+      /*
+      |--------------------------------------------------------------------------
+      | CREATE EMPTY ASSISTANT MESSAGE
+      |--------------------------------------------------------------------------
+      */
+
+      setMessages(
+        (previous) => [
+          ...previous,
+          {
+            id:
+              assistantId,
+
+            role:
+              "assistant",
+
+            content: "",
+
+            model:
+              selectedModel,
+
+            createdAt:
+              Date.now(),
+          },
+        ]
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | STREAM LOOP
+      |--------------------------------------------------------------------------
+      */
 
       while (true) {
         const {
@@ -397,13 +339,13 @@ export default function Home() {
             }
           );
 
-        accumulated +=
+        fullResponse +=
           chunk;
 
         /*
-        |----------------------------------------------------------
-        | Update assistant message
-        |----------------------------------------------------------
+        |--------------------------------------------------------------------------
+        | UPDATE ASSISTANT MESSAGE
+        |--------------------------------------------------------------------------
         */
 
         setMessages(
@@ -416,7 +358,7 @@ export default function Home() {
                       ...msg,
 
                       content:
-                        accumulated,
+                        fullResponse,
                     }
                   : msg
             )
@@ -424,24 +366,9 @@ export default function Home() {
       }
 
       /*
-      |--------------------------------------------------------------
-      | Final response
-      |--------------------------------------------------------------
-      */
-
-      const finalContent =
-        accumulated.trim();
-
-      if (!finalContent) {
-        throw new Error(
-          "AI tidak memberikan response."
-        );
-      }
-
-      /*
-      |--------------------------------------------------------------
-      | Finalize assistant message
-      |--------------------------------------------------------------
+      |--------------------------------------------------------------------------
+      | FINAL UPDATE
+      |--------------------------------------------------------------------------
       */
 
       setMessages(
@@ -454,7 +381,7 @@ export default function Home() {
                     ...msg,
 
                     content:
-                      finalContent,
+                      fullResponse,
                   }
                 : msg
           )
@@ -465,29 +392,26 @@ export default function Home() {
         error
       );
 
-      /*
-      |--------------------------------------------------------------
-      | Show error inside assistant message
-      |--------------------------------------------------------------
-      */
-
       setMessages(
-        (previous) =>
-          previous.map(
-            (msg) =>
-              msg.id ===
-              assistantId
-                ? {
-                    ...msg,
+        (previous) => [
+          ...previous,
+          {
+            id:
+              crypto.randomUUID(),
 
-                    content:
-                      error instanceof
-                      Error
-                        ? `Error: ${error.message}`
-                        : "Terjadi kesalahan.",
-                  }
-                : msg
-          )
+            role:
+              "assistant",
+
+            content:
+              error instanceof
+              Error
+                ? `Error: ${error.message}`
+                : "Terjadi kesalahan.",
+
+            createdAt:
+              Date.now(),
+          },
+        ]
       );
     } finally {
       setLoading(false);
@@ -505,20 +429,8 @@ export default function Home() {
       return;
     }
 
-    /*
-    |--------------------------------------------------------------
-    | Generate new conversation ID
-    |--------------------------------------------------------------
-    */
-
     const newConversationId =
       crypto.randomUUID();
-
-    /*
-    |--------------------------------------------------------------
-    | Reset UI
-    |--------------------------------------------------------------
-    */
 
     setMessages([]);
 
@@ -528,115 +440,69 @@ export default function Home() {
       newConversationId
     );
 
-    /*
-    |--------------------------------------------------------------
-    | Save new conversation ID
-    |--------------------------------------------------------------
-    */
+    localStorage.removeItem(
+      STORAGE_KEY
+    );
 
-    try {
-      localStorage.setItem(
-        CONVERSATION_KEY,
-        newConversationId
-      );
-
-      localStorage.removeItem(
-        STORAGE_KEY
-      );
-    } catch (error) {
-      console.error(
-        "Failed to reset conversation:",
-        error
-      );
-    }
+    localStorage.setItem(
+      CONVERSATION_KEY,
+      newConversationId
+    );
   }
 
   /*
   |--------------------------------------------------------------------------
-  | RENDER
+  | UI
   |--------------------------------------------------------------------------
   */
 
   return (
     <div className="app-shell">
-      {/* =========================================================
-          DESKTOP SIDEBAR
-          ========================================================= */}
-
       <Sidebar
         models={models}
-
         selectedModel={
           selectedModel
         }
-
         onModelChange={
           setSelectedModel
         }
-
         messages={messages}
-
-        onNewChat={
-          newChat
-        }
-
+        onNewChat={newChat}
         usage={usage}
-
         maxUsage={10}
       />
-
-      {/* =========================================================
-          MOBILE SIDEBAR
-          ========================================================= */}
 
       <MobileSidebar
         open={
           mobileSidebar
         }
-
         onClose={() =>
           setMobileSidebar(
             false
           )
         }
-
         models={models}
-
         selectedModel={
           selectedModel
         }
-
         onModelChange={
           setSelectedModel
         }
-
         messages={messages}
-
-        onNewChat={
-          newChat
-        }
-
+        onNewChat={newChat}
         usage={usage}
-
         maxUsage={10}
       />
-
-      {/* =========================================================
-          MAIN CONTENT
-          ========================================================= */}
 
       <main className="main-content">
         <ChatHeader
           models={models}
-
           selectedModel={
             selectedModel
           }
-
           onModelChange={
             setSelectedModel
           }
-
           onOpenSidebar={() =>
             setMobileSidebar(
               true
@@ -646,35 +512,22 @@ export default function Home() {
 
         <div className="chat-layout">
           <ChatArea
-            messages={
-              messages
-            }
-
-            loading={
-              loading
-            }
-
+            messages={messages}
+            loading={loading}
             selectedModel={
               selectedModel
             }
           />
 
           <Composer
-            value={
-              message
-            }
-
+            value={message}
             onChange={
               setMessage
             }
-
             onSend={
               sendMessage
             }
-
-            loading={
-              loading
-            }
+            loading={loading}
           />
         </div>
       </main>

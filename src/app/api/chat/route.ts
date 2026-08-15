@@ -27,8 +27,8 @@ export async function POST(
     const conversationId =
       body.conversationId;
 
-    const incomingMessages =
-      body.messages;
+    const message =
+      body.message;
 
     const requestedModel =
       body.model;
@@ -56,15 +56,14 @@ export async function POST(
     }
 
     if (
-      !Array.isArray(
-        incomingMessages
-      ) ||
-      incomingMessages.length === 0
+      !message ||
+      typeof message !==
+        "string"
     ) {
       return NextResponse.json(
         {
           error:
-            "Messages are required.",
+            "Message is required.",
         },
         {
           status: 400,
@@ -84,61 +83,24 @@ export async function POST(
 
     /*
     |--------------------------------------------------------------------------
-    | FIND LATEST USER MESSAGE
-    |--------------------------------------------------------------------------
-    */
-
-    const latestUserMessage =
-      [...incomingMessages]
-        .reverse()
-        .find(
-          (message) =>
-            message?.role ===
-            "user"
-        );
-
-    if (
-      !latestUserMessage ||
-      typeof latestUserMessage.content !==
-        "string"
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "User message is required.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    /*
-    |--------------------------------------------------------------------------
     | SAVE USER MESSAGE
     |--------------------------------------------------------------------------
     */
 
-    const userMessageId =
-      typeof latestUserMessage.id ===
-        "string"
-        ? latestUserMessage.id
-        : crypto.randomUUID();
-
     await saveMessage({
-      id: userMessageId,
+      id:
+        crypto.randomUUID(),
 
       conversationId,
 
       role: "user",
 
-      content:
-        latestUserMessage.content,
+      content: message,
     });
 
     /*
     |--------------------------------------------------------------------------
-    | LOAD CONVERSATION FROM DATABASE
+    | LOAD MEMORY
     |--------------------------------------------------------------------------
     */
 
@@ -149,24 +111,21 @@ export async function POST(
 
     /*
     |--------------------------------------------------------------------------
-    | CONVERT DATABASE MESSAGES
-    |
-    | Provider tidak membutuhkan ChatMessage UI.
-    | OpenRouter hanya membutuhkan role + content.
+    | PREPARE OPENROUTER CONTEXT
     |--------------------------------------------------------------------------
     */
 
     const conversation =
       databaseMessages.map(
-        (message) => ({
+        (item) => ({
           role:
-            message.role as
+            item.role as
               | "user"
               | "assistant",
 
           content:
             String(
-              message.content
+              item.content
             ),
         })
       );
@@ -203,9 +162,7 @@ export async function POST(
       }
     } else {
       const routing =
-        routeAI(
-          latestUserMessage.content
-        );
+        routeAI(message);
 
       selectedModel =
         routing.model;
@@ -234,7 +191,7 @@ export async function POST(
 
     /*
     |--------------------------------------------------------------------------
-    | OPENROUTER STREAM
+    | START OPENROUTER STREAM
     |--------------------------------------------------------------------------
     */
 
@@ -252,7 +209,7 @@ export async function POST(
 
     /*
     |--------------------------------------------------------------------------
-    | STREAM READER
+    | READ OPENROUTER STREAM
     |--------------------------------------------------------------------------
     */
 
@@ -265,17 +222,20 @@ export async function POST(
     const encoder =
       new TextEncoder();
 
-    let fullResponse = "";
+    let fullResponse =
+      "";
 
     /*
     |--------------------------------------------------------------------------
-    | CREATE RESPONSE STREAM
+    | CREATE SERVER STREAM
     |--------------------------------------------------------------------------
     */
 
     const stream =
       new ReadableStream({
-        async start(controller) {
+        async start(
+          controller
+        ) {
           try {
             let buffer = "";
 
@@ -303,19 +263,14 @@ export async function POST(
                   "\n"
                 );
 
-              /*
-              |----------------------------------------------------
-              | Keep incomplete SSE line
-              |----------------------------------------------------
-              */
-
               buffer =
-                lines.pop() ?? "";
+                lines.pop() ??
+                "";
 
               /*
-              |----------------------------------------------------
-              | Process SSE lines
-              |----------------------------------------------------
+              |--------------------------------------------------------------------------
+              | PROCESS SSE
+              |--------------------------------------------------------------------------
               */
 
               for (
@@ -373,9 +328,7 @@ export async function POST(
                   }
                 } catch {
                   /*
-                  |----------------------------------------------
-                  | Ignore invalid SSE chunks
-                  |----------------------------------------------
+                  Ignore invalid SSE chunks.
                   */
                 }
               }
@@ -383,7 +336,7 @@ export async function POST(
 
             /*
             |--------------------------------------------------------------------------
-            | SAVE ASSISTANT RESPONSE
+            | SAVE ASSISTANT MESSAGE
             |--------------------------------------------------------------------------
             */
 
@@ -405,17 +358,17 @@ export async function POST(
                 model:
                   selectedModel.id,
               });
-
-              await updateConversationTimestamp(
-                conversationId
-              );
             }
 
             /*
             |--------------------------------------------------------------------------
-            | CLOSE STREAM
+            | UPDATE CONVERSATION
             |--------------------------------------------------------------------------
             */
+
+            await updateConversationTimestamp(
+              conversationId
+            );
 
             controller.close();
           } catch (error) {
@@ -435,7 +388,7 @@ export async function POST(
 
     /*
     |--------------------------------------------------------------------------
-    | RETURN STREAM
+    | RESPONSE
     |--------------------------------------------------------------------------
     */
 
