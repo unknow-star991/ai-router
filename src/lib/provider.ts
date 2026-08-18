@@ -424,39 +424,7 @@ export const models: ModelConfig[] = [
     ],
   },
 
-  /*
-  |--------------------------------------------------------------------------
-  | GROQ
-  |--------------------------------------------------------------------------
-  */
-
-  {
-    id: "groq/llama-3.3-70b-versatile",
-    name: "Llama 3.3 70B",
-    provider: "groq",
-    tier: "free",
-
-    description:
-      "Model cepat untuk general dan coding melalui Groq.",
-
-    capabilities: [
-      "general",
-      "coding",
-      "reasoning",
-      "creative",
-    ],
-
-    priority: 9,
-    speed: 10,
-    quality: 9,
-
-    tags: [
-      "GROQ",
-      "FAST",
-      "FREE",
-    ],
-  },
-
+  
   /*
   |--------------------------------------------------------------------------
   | GOOGLE
@@ -593,59 +561,6 @@ async function requestOpenRouter(
     }
   );
 }
-
-/*
-|--------------------------------------------------------------------------
-| GROQ REQUEST
-|--------------------------------------------------------------------------
-*/
-
-async function requestGroq(
-  messages: OpenRouterMessage[],
-  model: string
-): Promise<Response> {
-
-  if (!GROQ_API_KEY) {
-    throw new Error(
-      "GROQ_API_KEY belum ditemukan."
-    );
-  }
-
-  /*
-   * Groq menggunakan OpenAI-compatible API.
-   */
-
-  return fetch(
-    GROQ_API_URL,
-    {
-      method: "POST",
-
-      headers: {
-        Authorization:
-          `Bearer ${GROQ_API_KEY}`,
-
-        "Content-Type":
-          "application/json",
-      },
-
-      body: JSON.stringify({
-        model,
-        stream: true,
-
-        messages: [
-          {
-            role: "system",
-            content:
-              SYSTEM_PROMPT,
-          },
-
-          ...messages,
-        ],
-      }),
-    }
-  );
-}
-
 /*
 |--------------------------------------------------------------------------
 | GOOGLE GEMINI REQUEST
@@ -769,13 +684,7 @@ async function requestProvider(
         messages,
         model
       );
-
-    case "groq":
-      return requestGroq(
-        messages,
-        model
-      );
-
+      
     case "google":
       return requestGoogle(
         messages,
