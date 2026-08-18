@@ -1,32 +1,23 @@
 "use client";
 
-import {
-  useEffect,
-  useState,
-} from "react";
+import type { ModelInfo } from "@/components/types";
+import type { MusicPlayerState } from "@/components/music";
 
-import type { ModelInfo } from "./types";
-
-interface ChatHeaderProps {
+type ChatHeaderProps = {
   models: ModelInfo[];
   selectedModel: string;
-  onModelChange: (
-    model: string
-  ) => void;
-  onOpenSidebar?: () => void;
-}
 
-interface AISettings {
-  aiName: string;
-  appName: string;
-  personality?: string;
-  theme?: "dark" | "light";
-  accentColor?: string;
-}
+  onModelChange: (model: string) => void;
+  onOpenSidebar: () => void;
 
-const DEFAULT_SETTINGS: AISettings = {
-  aiName: "NEXA",
-  appName: "AI Router",
+  musicPlayer?: MusicPlayerState | null;
+
+  onToggleMusic?: () => void;
+  onNextMusic?: () => void;
+  onPreviousMusic?: () => void;
+  onCloseMusic?: () => void;
+
+  onExpandMusic?: () => void;
 };
 
 export default function ChatHeader({
@@ -34,170 +25,249 @@ export default function ChatHeader({
   selectedModel,
   onModelChange,
   onOpenSidebar,
+
+  musicPlayer,
+  onToggleMusic,
+  onNextMusic,
+  onPreviousMusic,
+  onCloseMusic,
+  onExpandMusic,
 }: ChatHeaderProps) {
-  const [settings, setSettings] =
-    useState<AISettings>(
-      DEFAULT_SETTINGS
-    );
-
-  const [
-    loadingSettings,
-    setLoadingSettings,
-  ] = useState(true);
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadSettings() {
-      try {
-        const response =
-          await fetch(
-            "/api/ai-settings",
-            {
-              method: "GET",
-              cache: "no-store",
-            }
-          );
-
-        if (!response.ok) {
-          throw new Error(
-            `Failed to load AI settings: ${response.status}`
-          );
-        }
-
-        const data =
-          await response.json();
-
-        if (
-          mounted &&
-          data.success &&
-          data.settings
-        ) {
-          setSettings({
-            aiName:
-              data.settings.aiName ||
-              DEFAULT_SETTINGS.aiName,
-
-            appName:
-              data.settings.appName ||
-              DEFAULT_SETTINGS.appName,
-
-            personality:
-              data.settings.personality,
-
-            theme:
-              data.settings.theme,
-
-            accentColor:
-              data.settings.accentColor,
-          });
-        }
-      } catch (error) {
-        console.error(
-          "AI settings loading error:",
-          error
-        );
-      } finally {
-        if (mounted) {
-          setLoadingSettings(false);
-        }
-      }
-    }
-
-    loadSettings();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const selectedModelInfo =
-    models.find(
-      (model) =>
-        model.id === selectedModel
-    );
+  const selectedModelInfo = models.find(
+    (model) => model.id === selectedModel
+  );
 
   const modelName =
-    selectedModel === "auto"
-      ? "Auto Free"
-      : selectedModelInfo?.name ??
-        selectedModel;
-
-  const aiName =
-    settings.aiName || "NEXA";
-
-  const appName =
-    settings.appName || "AI Router";
-
-  const avatarLetter =
-    aiName
-      .trim()
-      .charAt(0)
-      .toUpperCase() || "N";
+    selectedModelInfo?.name ??
+    selectedModel.split("/").pop() ??
+    selectedModel;
 
   return (
     <header className="chat-header">
+
+      {/* =====================================================
+          LEFT
+      ===================================================== */}
+
       <div className="chat-header-left">
-        {onOpenSidebar && (
-          <button
-            type="button"
-            className="mobile-menu-button"
-            onClick={onOpenSidebar}
-            aria-label="Open sidebar"
-          >
-            <span />
-            <span />
-            <span />
-          </button>
-        )}
+
+        <button
+          type="button"
+          className="mobile-menu-button"
+          onClick={onOpenSidebar}
+          aria-label="Open sidebar"
+        >
+          <span />
+          <span />
+          <span />
+        </button>
 
         <div className="chat-ai-avatar">
-          <span>
-            {loadingSettings
-              ? "✦"
-              : avatarLetter}
-          </span>
+          N
         </div>
 
         <div className="chat-header-info">
           <div className="chat-header-title">
-            <span>
-              {loadingSettings
-                ? "NEXA"
-                : aiName}
-            </span>
-
+            <span>Nexa</span>
             <span className="ai-status-dot" />
           </div>
 
           <div className="chat-header-subtitle">
-            {appName}
+            AI Router
           </div>
         </div>
+
       </div>
 
-      <div className="chat-header-right">
+      {/* =====================================================
+          CENTER MUSIC PLAYER
+      ===================================================== */}
+
+      {musicPlayer && (
+        <div
+          className={`header-music-player ${
+            musicPlayer.playing
+              ? "playing"
+              : ""
+          }`}
+        >
+
+          {/* THUMBNAIL */}
+
+          <div className="header-music-thumbnail">
+
+            {musicPlayer.thumbnail ? (
+              <img
+                src={musicPlayer.thumbnail}
+                alt=""
+              />
+            ) : (
+              <div className="header-music-placeholder">
+                ♪
+              </div>
+            )}
+
+            {musicPlayer.playing && (
+              <div className="header-music-playing">
+                <i />
+                <i />
+                <i />
+              </div>
+            )}
+
+          </div>
+
+          {/* INFO */}
+
+          <div className="header-music-info">
+
+            <div
+              className="header-music-title"
+              title={musicPlayer.title}
+            >
+              {musicPlayer.title}
+            </div>
+
+            <div
+              className="header-music-channel"
+              title={musicPlayer.channel}
+            >
+              {musicPlayer.channel}
+            </div>
+
+          </div>
+
+          {/* CONTROLS */}
+
+          <div className="header-music-controls">
+
+            {/* PREVIOUS */}
+
+            <button
+              type="button"
+              className="header-music-button"
+              onClick={onPreviousMusic}
+              aria-label="Previous song"
+              title="Previous"
+            >
+              ‹
+            </button>
+
+            {/* PLAY / PAUSE */}
+
+            <button
+              type="button"
+              className="header-music-play"
+              onClick={onToggleMusic}
+              aria-label={
+                musicPlayer.playing
+                  ? "Pause music"
+                  : "Play music"
+              }
+              title={
+                musicPlayer.playing
+                  ? "Pause"
+                  : "Play"
+              }
+            >
+              {musicPlayer.playing
+                ? "Ⅱ"
+                : "▶"}
+            </button>
+
+            {/* NEXT */}
+
+            <button
+              type="button"
+              className="header-music-button"
+              onClick={onNextMusic}
+              aria-label="Next song"
+              title="Next"
+            >
+              ›
+            </button>
+
+            {/* EXPAND */}
+
+            <button
+              type="button"
+              className="header-music-expand"
+              onClick={onExpandMusic}
+              aria-label="Expand music player"
+              title="Open full player"
+            >
+              ⛶
+            </button>
+
+            {/* CLOSE */}
+
+            <button
+              type="button"
+              className="header-music-close"
+              onClick={onCloseMusic}
+              aria-label="Close music player"
+              title="Close"
+            >
+              ×
+            </button>
+
+          </div>
+
+          {/* PROGRESS */}
+
+          <div className="header-music-progress">
+
+            <div
+              className="header-music-progress-bar"
+              style={{
+                width: `${Math.min(
+                  100,
+                  Math.max(
+                    0,
+                    musicPlayer.progress
+                  )
+                )}%`,
+              }}
+            />
+
+          </div>
+
+        </div>
+      )}
+
+      {/* =====================================================
+          RIGHT
+      ===================================================== */}
+
+      <div className="chat-header-right chat-header-right-spaced">
+
+        <div className="current-model">
+
+          <span className="current-model-dot" />
+
+          <span className="current-model-name">
+            {modelName}
+          </span>
+
+        </div>
+
         <div className="model-selector-wrapper">
+
           <select
+            className="model-selector"
             value={selectedModel}
             onChange={(event) =>
               onModelChange(
                 event.target.value
               )
             }
-            className="model-selector"
-            aria-label="Select AI model"
           >
-            <option value="auto">
-              Auto Free
-            </option>
-
             {models.map((model) => (
               <option
                 key={model.id}
                 value={model.id}
               >
-                {model.name}
+                {model.name ?? model.id}
               </option>
             ))}
           </select>
@@ -205,16 +275,11 @@ export default function ChatHeader({
           <span className="model-selector-arrow">
             ▾
           </span>
+
         </div>
 
-        <div className="current-model">
-          <span className="current-model-dot" />
-
-          <span>
-            {modelName}
-          </span>
-        </div>
       </div>
+
     </header>
   );
 }

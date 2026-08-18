@@ -1,17 +1,15 @@
 export type ModelTier =
   | "free"
-  | "token"
-  | "limited";
+  | "limited"
+  | "token";
 
-export type AIProvider =
-  | "openrouter"
-  | "groq"
-  | "google";
+export interface ModelConfig
+  extends ModelInfo {}
 
 export interface ModelInfo {
   id: string;
   name: string;
-  provider: AIProvider;
+  provider: string;
 
   capabilities?: string[];
 
@@ -23,23 +21,8 @@ export interface ModelInfo {
   tier?: ModelTier;
 
   description?: string;
+
   supportsImageInput?: boolean;
+
   tags?: string[];
-}
-
-export interface ModelConfig extends ModelInfo {}
-
-export interface ChatMessage {
-  id: string;
-
-  role:
-    | "user"
-    | "assistant"
-    | "system";
-
-  content: string;
-
-  model?: string;
-
-  createdAt?: number;
 }
