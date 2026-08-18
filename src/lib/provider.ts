@@ -652,8 +652,6 @@ function getFallbackModel(
     case "openrouter":
       return "openrouter/free";
 
-    case "groq":
-      return "llama-3.3-70b-versatile";
 
     case "google":
       return "gemini-2.5-flash";
@@ -684,7 +682,7 @@ async function requestProvider(
         messages,
         model
       );
-      
+
     case "google":
       return requestGoogle(
         messages,
